@@ -90,17 +90,17 @@ public class Caesar {
 
                         if ( element - last > 1 ) {
 
-                            throw new IncoherentIndexException( element, last + 1 );
+                            throw new IncoherentArgumentIndexException( element, last + 1 );
 
                         } else last = element;
 
-                    } else throw new IndexClashException( element );
+                    } else throw new ArgumentIndexClashException( element );
 
                 }
 
             }
 
-        } catch ( IndexClashException | IncoherentIndexException exception ) {
+        } catch ( ArgumentIndexClashException | IncoherentArgumentIndexException exception ) {
 
             exception.printStackTrace();
 
@@ -168,7 +168,7 @@ public class Caesar {
 
         List< String > pool = Arrays.asList( arguments );
 
-        /* 1. Step: Fetching field values.
+        /* 1. Step: Fetching field values and validating them.
          * ----------------------------------------------------------
          * Field values are written to the collection if they match
          * the provided scheme of the definition at the same index.
@@ -185,12 +185,17 @@ public class Caesar {
                 //Checking if field with this index still exists.
                 if ( i < pool.size() ) {
 
-                    String target = pool.get( i );
+                    /* The access index is always zero, because an already validated
+                     * value (the first one) is removed from the list, shifting the following
+                     * element to its position.
+                     */
+                    String target = pool.get( 0 );
 
                     //Determining if field matches the scheme.
                     if ( INDEXED_RULES.get( i ).applies( target ) ) {
 
                         INDEXED_FETCH.add( target );
+                        pool.remove( 0 );
 
                     } else throw new SchemeMismatchException( target );
 
@@ -199,6 +204,132 @@ public class Caesar {
             }
 
         } catch ( SchemeMismatchException | EssentialArgumentMissingException exception ) {
+
+            exception.printStackTrace();
+
+        }
+
+        /* 2. Step: Fetching flags and groups and validating them
+         *          (excluding dependencies).
+         * ----------------------------------------------------------
+         * Flags and groups are annotated arguments.
+         * They are extracted and validated with respect to identifier values
+         * and alternative labels.
+         */
+        try {
+
+            if ( ANNOTATED_RULES.size() > 0 ) {
+
+                /* @parent is defined if the flag of a group has been detected in the
+                 * previous iteration - this group is considered the parent of the
+                 * coming argument.
+                 * It provides context to which scheme must be applied to the following
+                 * argument.
+                 */
+                AnnotatedArgument parent = null;
+                AnnotatedArgument candidate;
+
+                //Iterating over remaining arguments after removing field values.
+                for ( String element : pool ) {
+
+                    /* Each iteration could yield a new annotated argument (simple flag or group),
+                     * therefore, each time a possible candidate must be evaluated.
+                     */
+                    candidate = ANNOTATED_RULES.get( element );
+                    if ( parent == null ) {
+
+                        /* If @parent is undefined (the algorithm expects an annotated argument, so either
+                         * a flag or a group) and the current argument doesn't announce such, then the argument
+                         * is invalid and therefore an exception is thrown.
+                         */
+                        if ( candidate != null ) {
+
+                            /* Some annotated arguments might have alternatives or aliases.
+                             * They exclude each other, which means that if any alternative
+                             * can be found in the cache collection, an exception is thrown
+                             * because otherwise there would be multiple arguments that
+                             * exclude each other.
+                             */
+                            boolean excluded = candidate.getAlternatives()
+                                                        .stream()
+                                                        .noneMatch( alt -> ANNOTATED_FETCH.containsKey( alt.getIdentifier() ) );
+                            if ( !excluded ) {
+
+                                if ( candidate instanceof Group ) {
+
+                                    parent = candidate;
+
+                                } else {
+
+                                    ANNOTATED_FETCH.put( element, null );
+
+                                }
+
+                            } else {
+
+                                AnnotatedArgument included = candidate.getAlternatives()
+                                                                      .stream()
+                                                                      .filter( alt -> ANNOTATED_FETCH.containsKey( alt.getIdentifier() ) )
+                                                                      .findAny().get();
+                                throw new ExcludedArgumentException( element, included.getIdentifier() );
+
+                            }
+
+                        } else throw new InvalidFlagException( element );
+
+                    } else {
+
+                        /* If the scheme applies to the current argument, the annotated argument
+                         * is valid and the group is stored in the cache collection.
+                         * Then, the @parent is set to null again to indicate that another
+                         * annotated argument is expected.
+                         * Otherwise, the current argument is invalid and an exception is thrown.
+                         */
+                        Scheme scheme = ( ( Group ) parent ).getScheme();
+                        if ( scheme.applies( element ) ) {
+
+                            ANNOTATED_FETCH.put( parent.getIdentifier(), element );
+                            parent = null;
+
+                        } else throw new SchemeMismatchException( element );
+
+                    }
+
+                }
+
+            }
+
+        } catch ( InvalidFlagException | ExcludedArgumentException | SchemeMismatchException exception ) {
+
+            exception.printStackTrace();
+
+        }
+
+        /* 3. Step: Evaluating dependencies and their fulfillment.
+         * ----------------------------------------------------------
+         * Annotated arguments can have dependencies which must be evaluated.
+         * If an argument doesn't have its dependencies fulfilled, an
+         * exception is thrown.
+         */
+        try {
+
+            for ( String argument : ANNOTATED_FETCH.keySet() ) {
+
+                List< AnnotatedArgument > dependencies = ANNOTATED_RULES.get( argument ).getDependencies();
+                for ( AnnotatedArgument dependency : dependencies ) {
+
+                    String identifier = dependency.getIdentifier();
+                    if ( !ANNOTATED_FETCH.containsKey( identifier ) ) {
+
+                        throw new UnfulfilledArgumentDependencyException( argument, identifier );
+
+                    }
+
+                }
+
+            }
+
+        } catch ( UnfulfilledArgumentDependencyException exception ) {
 
             exception.printStackTrace();
 

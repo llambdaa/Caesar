@@ -1,8 +1,8 @@
 package engine.caesar.exception;
 
-public class IndexClashException extends Exception {
+public class ArgumentIndexClashException extends Exception {
 
-    public IndexClashException( int index ) {
+    public ArgumentIndexClashException(int index ) {
 
         super( String.format( "Multiple fields have been assigned the index '%s'.", index ) );
 
