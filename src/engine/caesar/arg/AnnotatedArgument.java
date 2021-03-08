@@ -1,5 +1,6 @@
 package engine.caesar.arg;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public abstract class AnnotatedArgument extends Argument {
@@ -12,8 +13,8 @@ public abstract class AnnotatedArgument extends Argument {
 
         super( essential, -1 );
         this.identifier = identifier;
-        this.alternatives = alternatives;
-        this.dependencies = dependencies;
+        this.alternatives = alternatives == null ? new ArrayList<>() : alternatives;
+        this.dependencies = dependencies == null ? new ArrayList<>() : dependencies;
 
     }
 

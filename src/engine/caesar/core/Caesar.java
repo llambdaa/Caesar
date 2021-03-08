@@ -1,9 +1,7 @@
 package engine.caesar.core;
 
-import engine.caesar.arg.AnnotatedArgument;
-import engine.caesar.arg.Argument;
-import engine.caesar.arg.Field;
-import engine.caesar.arg.Scheme;
+import engine.caesar.arg.*;
+import engine.caesar.exception.DuplicateArgumentDefinitionException;
 import engine.caesar.exception.IncoherentIndexException;
 import engine.caesar.exception.IndexClashException;
 
@@ -87,9 +85,9 @@ public class Caesar {
                  * be detected by comparing the last element to the current one.
                  */
                 int last = -1;
-                for ( int i = 0; i < fields.size(); i++ ) {
+                for ( Field field : fields ) {
 
-                    int element = fields.get( i ).getIndex();
+                    int element = field.getIndex();
                     if ( last != element ) {
 
                         if ( element - last > 1 ) {
@@ -98,7 +96,7 @@ public class Caesar {
 
                         } else last = element;
 
-                    } else throw new IndexClashException( i );
+                    } else throw new IndexClashException( element );
 
                 }
 
@@ -109,6 +107,62 @@ public class Caesar {
             exception.printStackTrace();
 
         }
+
+        /* 2. Step: Storing annotated arguments and transferring alternatives
+         *          and checking for duplicate definitions.
+         * -------------------------------------------------------------------
+         * If there are annotated arguments a and b, b can define a as an
+         * alternative within its constructor.
+         * Since b didn't exist when a was constructed, b is not explicitly
+         * listed as an alternative for a - although technically it is.
+         *
+         * Hence, b is registered as an alternative for a.
+         * This procedure allows for faster alternative search when parsing
+         * the arguments.
+         */
+        //Storing and checking for duplicates.
+        Caesar.ANNOTATED_RULES = new HashMap<>();
+        arguments.forEach( arg -> {
+
+            try {
+
+                if ( arg instanceof AnnotatedArgument ) {
+
+                    AnnotatedArgument annotated = ( AnnotatedArgument ) arg;
+                    String identifier = annotated.getIdentifier();
+
+                    if ( !Caesar.ANNOTATED_RULES.containsKey( identifier ) ) {
+
+                        Caesar.ANNOTATED_RULES.put( identifier, annotated );
+
+                    } else throw new DuplicateArgumentDefinitionException( identifier );
+
+                }
+
+            } catch ( DuplicateArgumentDefinitionException exception ) {
+
+                exception.printStackTrace();
+
+            }
+
+        } );
+
+        //Transferring alternative definitions.
+        Caesar.ANNOTATED_RULES.forEach( ( identifier, annotated ) -> {
+
+            /* Each of the elements from the entry's alternative collection
+             * is addressed and the entry's key itself (identifier of currently
+             * inspected annotated argument) is put into the respective element's
+             * alternative collection.
+             */
+            annotated.getAlternatives().forEach( element -> {
+
+                AnnotatedArgument alternative = Caesar.ANNOTATED_RULES.get( element.getIdentifier() );
+                alternative.getAlternatives().add( annotated );
+
+            } );
+
+        } );
 
     }
 
@@ -126,9 +180,15 @@ public class Caesar {
 
     public static void main( String ... arguments ) {
 
+        //TODO REMOVE TESTING
         List< Argument > args = new ArrayList<>();
         args.add( new Field( Scheme.INTEGER, 0 ) );
-        args.add( new Field( Scheme.URI, 0 ) );
+        args.add( new Field( Scheme.URI, 1 ) );
+        Flag a = new Flag( true, "-r", null, null );
+        args.add( a );
+        Flag b = new Flag( true, "-b", Collections.singletonList( a ), null );
+        args.add( b );
+
         Caesar.calibrate( args );
 
     }
