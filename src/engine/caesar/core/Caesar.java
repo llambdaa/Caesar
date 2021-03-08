@@ -1,9 +1,7 @@
 package engine.caesar.core;
 
 import engine.caesar.arg.*;
-import engine.caesar.exception.DuplicateArgumentDefinitionException;
-import engine.caesar.exception.IncoherentIndexException;
-import engine.caesar.exception.IndexClashException;
+import engine.caesar.exception.*;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -168,13 +166,82 @@ public class Caesar {
 
     public static void fetch( String ... arguments ) {
 
-        //auswerten und schreiben
+        List< String > pool = Arrays.asList( arguments );
+
+        /* 1. Step: Fetching field values.
+         * ----------------------------------------------------------
+         * Field values are written to the collection if they match
+         * the provided scheme of the definition at the same index.
+         *
+         * If the collection of fields is smaller than the collection
+         * of definitions, there is at least one field missing.
+         * Therefore, an exception must be raised.
+         */
+        Caesar.INDEXED_FETCH = new ArrayList<>();
+        try {
+
+            for ( int i = 0; i < INDEXED_RULES.size(); i++ ) {
+
+                //Checking if field with this index still exists.
+                if ( i < pool.size() ) {
+
+                    String target = pool.get( i );
+
+                    //Determining if field matches the scheme.
+                    if ( INDEXED_RULES.get( i ).applies( target ) ) {
+
+                        INDEXED_FETCH.add( target );
+
+                    } else throw new SchemeMismatchException( target );
+
+                } else throw new EssentialArgumentMissingException( i );
+
+            }
+
+        } catch ( SchemeMismatchException | EssentialArgumentMissingException exception ) {
+
+            exception.printStackTrace();
+
+        }
+
+        /* x. Step: Checking if all essential arguments are provided.
+         * ----------------------------------------------------------
+         */
+        try {
+
+            for ( Map.Entry< String, AnnotatedArgument > entry : ANNOTATED_RULES.entrySet() ) {
+
+                if ( entry.getValue().isEssential() && !ANNOTATED_FETCH.containsKey( entry.getKey() ) ) {
+
+                    throw new EssentialArgumentMissingException( entry.getKey() );
+
+                }
+
+            }
+
+        } catch ( EssentialArgumentMissingException exception ) {
+
+            exception.printStackTrace();
+
+        }
+
+    }
+
+    public static String getValue( int index ) {
+
+        return Caesar.INDEXED_FETCH.get( index );
+
+    }
+
+    public static String getValue( String identifier ) {
+
+        return Caesar.ANNOTATED_FETCH.get( identifier );
 
     }
 
     public static boolean isPresent( String identifier ) {
 
-        return false;
+        return Caesar.ANNOTATED_FETCH.containsKey( identifier );
 
     }
 
@@ -183,13 +250,15 @@ public class Caesar {
         //TODO REMOVE TESTING
         List< Argument > args = new ArrayList<>();
         args.add( new Field( Scheme.INTEGER, 0 ) );
-        args.add( new Field( Scheme.URI, 1 ) );
-        Flag a = new Flag( true, "-r", null, null );
+        args.add( new Field( Scheme.INTEGER, 1 ) );
+        Flag a = new Flag( false, "-r", null, null );
         args.add( a );
-        Flag b = new Flag( true, "-b", Collections.singletonList( a ), null );
+        Flag b = new Flag( false, "-b", Collections.singletonList( a ), null );
         args.add( b );
 
         Caesar.calibrate( args );
+        String[] lol = new String[]{ "0" };
+        Caesar.fetch( lol );
 
     }
 

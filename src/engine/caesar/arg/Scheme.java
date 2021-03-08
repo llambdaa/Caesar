@@ -2,26 +2,28 @@ package engine.caesar.arg;
 
 import java.util.function.Function;
 
-public class Scheme <A> {
+public class Scheme {
 
-    public static final Scheme INTEGER = Scheme.from( Integer::valueOf );
-    public static final Scheme URI     = Scheme.from( value -> {
+    public static final Scheme INTEGER = Scheme.from( value -> value.matches( "[+-]?\\d+" ) );
+    public static final Scheme URI     = Scheme.from( value -> value.matches( "[-a-zA-Z0-9+&@#/%?=~_|!:,.;]*[-a-zA-Z0-9+&@#/%=~_|]" ) );
 
-        return value.matches( "[-a-zA-Z0-9+&@#/%?=~_|!:,.;]*[-a-zA-Z0-9+&@#/%=~_|]" );
-
-    } );
-
-    public static <A> Scheme from( Function< String, A > function ) {
+    public static Scheme from( Function< String, Boolean > function ) {
 
         return new Scheme( function );
 
     }
 
-    private Function< String, A > validator;
+    private Function< String, Boolean > validator;
 
-    public Scheme( Function< String, A > validator ) {
+    public Scheme( Function< String, Boolean > validator ) {
 
         this.validator = validator;
+
+    }
+
+    public boolean applies( String subject ) {
+
+        return this.validator.apply( subject );
 
     }
 
