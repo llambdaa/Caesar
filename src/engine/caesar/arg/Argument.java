@@ -16,4 +16,10 @@ public abstract class Argument {
 
     }
 
+    public void setEssential( boolean essential ) {
+
+        this.essential = essential;
+
+    }
+
 }

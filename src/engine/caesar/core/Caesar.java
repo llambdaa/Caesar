@@ -27,7 +27,7 @@ public class Caesar {
      */
     private static List< Field > FIELD_CONFIG;
     private static Map< String, AnnotatedArgument > ARG_CONFIG;
-    private static Map< String, HashSet< String > > ARG_ALIASES;
+    private static Map< String, HashSet< AnnotatedArgument > > ARG_ALIASES;
 
 //    /**
 //     * Fetching results differ depending on the rule set.
@@ -74,6 +74,11 @@ public class Caesar {
          * 4. Step: Grouping together alternative or aliased arguments.
          * ------------------------------------------------------------- */
         Caesar.ARG_ALIASES = Caesar.groupAliases( Caesar.ARG_CONFIG );
+
+        /* -------------------------------------------------------------
+         * 5. Step: Aligning essentiality over whole alias groups.
+         * ------------------------------------------------------------- */
+        Caesar.alignEssentiality( Caesar.ARG_CONFIG, Caesar.ARG_ALIASES );
 
     }
 
@@ -204,10 +209,10 @@ public class Caesar {
      *  Found groups are put into @Caesar.ALIASES and are later used
      *  to detect e.g. dependency clashes.
      */
-    private static Map< String, HashSet< String > > groupAliases( Map< String, AnnotatedArgument > source ) {
+    private static Map< String, HashSet< AnnotatedArgument > > groupAliases( Map< String, AnnotatedArgument > source ) {
 
-        Map< String, AnnotatedArgument > arguments = ( HashMap< String, AnnotatedArgument > ) ( ( HashMap ) source ).clone();
-        Map< String, HashSet< String > >    result = new HashMap<>();
+        Map< String, AnnotatedArgument >         arguments = ( HashMap< String, AnnotatedArgument > ) ( ( HashMap ) source ).clone();
+        Map< String, HashSet< AnnotatedArgument > > result = new HashMap<>();
 
         /* The algorithm takes the first element of @arguments and
          * groups it together with its aliases.
@@ -217,9 +222,9 @@ public class Caesar {
          */
         while ( !arguments.isEmpty() ) {
 
-            AnnotatedArgument          first = ( AnnotatedArgument ) arguments.values().toArray()[ 0 ];
-            HashSet< String  >       aliases = new HashSet<>( Collections.singleton( first.getIdentifier() ) );
-            Queue< AnnotatedArgument > query = new LinkedList<>( first.getAlternatives() );
+            AnnotatedArgument              first = ( AnnotatedArgument ) arguments.values().toArray()[ 0 ];
+            HashSet< AnnotatedArgument > aliases = new HashSet<>( Collections.singleton( first ) );
+            Queue< AnnotatedArgument >     query = new LinkedList<>( first.getAlternatives() );
 
             /* When checking an annotated argument, its alternative arguments
              * are put on the queue, so that they themselves are checked later on.
@@ -233,7 +238,7 @@ public class Caesar {
                 if ( arguments.containsKey( identifier ) ) {
 
                     arguments.remove( identifier );
-                    aliases.add( identifier );
+                    aliases.add( front );
                     query.addAll( front.getAlternatives() );
 
                 }
@@ -245,11 +250,53 @@ public class Caesar {
              * For faster search, each element of the group itself is linked
              * with the whole group in the resulting hashmap.
              */
-            aliases.forEach( alias -> result.put( alias, aliases ) );
+            aliases.forEach( alias -> result.put( alias.getIdentifier(), aliases ) );
 
         }
 
         return result;
+
+    }
+
+    /** This method aligns essentiality values for each argument
+     *  in an alias group.
+     *
+     *  This is an important step because an alternative to an essential argument
+     *  cannot be non-essential. Alternative arguments exclude each other and if
+     *  the non-essential argument would be used instead of the essential one,
+     *  the engine would detect that an essential argument is missing.
+     *  But at the same time, the essential argument cannot be used
+     *  because it is excluded due to the non-essential argument being in use.
+     */
+    private static void alignEssentiality( Map< String, AnnotatedArgument > source, Map< String, HashSet< AnnotatedArgument > > aliases ) {
+
+        Map< String, AnnotatedArgument > arguments = ( HashMap< String, AnnotatedArgument > ) ( ( HashMap ) source ).clone();
+        while ( arguments.size() > 0 ) {
+
+            AnnotatedArgument            first = ( AnnotatedArgument ) arguments.values().toArray()[ 0 ];
+            HashSet< AnnotatedArgument > group = aliases.get( first.getIdentifier() );
+
+            /* Essential is true if any of the elements of the alias group
+             * itself is essential.
+             * If it is indeed true, each argument must be declared essential.
+             */
+            boolean essential = group.stream().anyMatch( Argument::isEssential );
+            group.forEach( arg -> {
+
+                if ( essential ) {
+
+                    arg.setEssential( true );
+
+                }
+
+                /* After evaluation and possible declaration of essentiality,
+                 * each element of the alias group must be deleted from the map.
+                 */
+                arguments.remove( arg.getIdentifier() );
+
+            } );
+
+        }
 
     }
 
@@ -488,10 +535,10 @@ public class Caesar {
     public static void main( String ... arguments ) {
 
         List< Argument > config = new ArrayList<>();
-        Flag a = new Flag( true, "-a", null, null );
-        Flag b = new Flag( true, "-b", Collections.singletonList(a), null );
-        Flag c = new Flag( true, "-c", Collections.singletonList(b), null );
-        Flag d = new Flag( true, "-d", Collections.singletonList(b), null );
+        Flag a = new Flag( false, "-a", null, null );
+        Flag b = new Flag( false, "-b", Collections.singletonList(a), null );
+        Flag c = new Flag( false, "-c", Collections.singletonList(b), null );
+        Flag d = new Flag( false, "-d", Collections.singletonList(b), null );
 
         config.add( c );
         config.add( a );
@@ -502,7 +549,7 @@ public class Caesar {
         ARG_ALIASES.forEach( ( k, aliases ) -> {
 
             System.out.println( "key: " + k );
-            aliases.forEach( System.out::println );
+            aliases.forEach( arg -> System.out.println( arg.getIdentifier() + " / " + arg.isEssential() ) );
 
         } );
 
