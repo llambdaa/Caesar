@@ -3,7 +3,9 @@ package engine.caesar.core;
 import engine.caesar.arg.*;
 import engine.caesar.exception.*;
 
+import java.awt.*;
 import java.util.*;
+import java.util.List;
 import java.util.stream.Collectors;
 
 public class Caesar {
@@ -64,6 +66,11 @@ public class Caesar {
          * 5. Step: Aligning essentiality over whole alias groups.
          * ------------------------------------------------------------- */
         Caesar.alignEssentiality( Caesar.ARG_CONFIG, Caesar.ARG_ALIASES );
+
+        /* -------------------------------------------------------------
+         * 6. Step: Checking for dependency clashes.
+         * ------------------------------------------------------------- */
+        Caesar.checkDependencies( Caesar.ARG_CONFIG, Caesar.ARG_ALIASES );
 
     }
 
@@ -234,9 +241,16 @@ public class Caesar {
             /* At this point, all elements of the alias group have been
              * found and it is ready to be outputted.
              * For faster search, each element of the group itself is linked
-             * with the whole group in the resulting hashmap.
+             * with the whole group (minus itself) in the resulting hashmap.
              */
-            aliases.forEach( alias -> result.put( alias.getIdentifier(), aliases ) );
+            aliases.forEach( alias -> {
+
+                HashSet< AnnotatedArgument > alternatives = ( HashSet< AnnotatedArgument > ) aliases.clone();
+                alternatives.remove( alias );
+
+                result.put( alias.getIdentifier(), alternatives );
+
+            } );
 
         }
 
@@ -259,8 +273,17 @@ public class Caesar {
         Map< String, AnnotatedArgument > arguments = ( HashMap< String, AnnotatedArgument > ) ( ( HashMap ) source ).clone();
         while ( arguments.size() > 0 ) {
 
+            /* In each iteration the first element can be accessed and is surely an element of a group
+             * that hasn't been inspected yet because in each preceding iteration the whole alias group
+             * of the former first element has been removed.
+             *
+             * Since the alias group stored along with the first element doesn't contain the element itself
+             * for logical and architectural reasons, the group collection must be cloned first so that
+             * the element itself can be added to it for further calculations without affecting the source collection.
+             */
             AnnotatedArgument            first = ( AnnotatedArgument ) arguments.values().toArray()[ 0 ];
-            HashSet< AnnotatedArgument > group = aliases.get( first.getIdentifier() );
+            HashSet< AnnotatedArgument > group = ( HashSet< AnnotatedArgument > ) aliases.get( first.getIdentifier() ).clone();
+            group.add( first );
 
             /* Essential is true if any of the elements of the alias group
              * itself is essential.
@@ -276,11 +299,58 @@ public class Caesar {
                 }
 
                 /* After evaluation and possible declaration of essentiality,
-                 * each element of the alias group must be deleted from the map.
+                 * each element of the alias group can be deleted from the map
+                 * because otherwise the calculation would be done again as
+                 * soon as the iteration finds this element.
                  */
                 arguments.remove( arg.getIdentifier() );
 
             } );
+
+        }
+
+    }
+
+    private static void checkDependencies( Map< String, AnnotatedArgument > config, Map< String, HashSet< AnnotatedArgument > > aliases ) {
+
+        for ( Map.Entry< String, AnnotatedArgument > element : config.entrySet() ) {
+
+            String identifier = element.getKey();
+            AnnotatedArgument argument = element.getValue();
+
+            /* The actual references to the argument dependencies are not needed.
+             * For faster search (only the identifiers are needed), the dependency
+             * collection is transformed into an identifier HashSet.
+             */
+            HashSet< AnnotatedArgument > dependencies = new HashSet<>( argument.getDependencies() );
+            for ( AnnotatedArgument dependency : dependencies ) {
+
+                try {
+
+                    /* For each dependency of @argument, its alternatives are retrieved.
+                     * If any of its alternatives can also be found in @argument's dependency
+                     * collection, then @clashing is defined (as another dependency that is also
+                     * an alternative to the currently inspected dependency) and an exception is thrown
+                     * because this means that two alternative arguments (which exclude each other)
+                     * are set as a dependency for @argument.
+                     */
+                    HashSet< AnnotatedArgument > alternatives = aliases.get( dependency.getIdentifier() );
+                    Optional< AnnotatedArgument> clashing = alternatives.stream().filter( dependencies::contains ).findAny();
+                    if ( clashing.isPresent() ) {
+
+                        throw new DependencyClashExeption( dependency.getIdentifier(),
+                                                           clashing.get().getIdentifier(),
+                                                           argument.getIdentifier() );
+
+                    }
+
+                } catch ( DependencyClashExeption exception ) {
+
+                    exception.printStackTrace();
+
+                }
+
+            }
 
         }
 
@@ -340,24 +410,6 @@ public class Caesar {
 //        }
 //
 //    }
-
-    public static Optional< String > getValue( int index ) {
-
-        return Optional.ofNullable( Caesar.FIELDS.get( index ) );
-
-    }
-
-    public static Optional< List< String > > getValues( String argument ) {
-
-        return Optional.ofNullable( Caesar.ARGS.get( argument ) );
-
-    }
-
-    public static boolean isPresent( String argument ) {
-
-        return Caesar.ARGS.containsKey( argument );
-
-    }
 
     public static void process( List< String > fragments ) {
 
@@ -529,20 +581,35 @@ public class Caesar {
 
     }
 
+    public static Optional< String > getValue( int index ) {
+
+        return Optional.ofNullable( Caesar.FIELDS.get( index ) );
+
+    }
+
+    public static Optional< List< String > > getValues( String argument ) {
+
+        return Optional.ofNullable( Caesar.ARGS.get( argument ) );
+
+    }
+
+    public static boolean isPresent( String argument ) {
+
+        return Caesar.ARGS.containsKey( argument );
+
+    }
+
     public static void main( String ... arguments ) {
 
         List< String > args = new ArrayList<>();
-        args.add( "-d" );
-        args.add( "30" );
-        args.add( "40" );
-        args.add( "-c" );
-        args.add( "20" );
 
         List< Argument > config = new ArrayList<>();
-        Group c = new Group( true, "-c", Scheme.INTEGER, null, null );
-        Group d = new Group( false, "-d", Arrays.asList( Scheme.INTEGER, Scheme.INTEGER ), null, null );
+        Group a = new Group( true, "-a", Scheme.INTEGER, null, null );
+        Group b = new Group( true, "-b", Arrays.asList( Scheme.INTEGER, Scheme.INTEGER ), Collections.singletonList( a ), null );
+        Group c = new Group( true, "-c", Scheme.PASS_ALL, null, Arrays.asList( a, b ) );
+        config.add( a );
+        config.add( b );
         config.add( c );
-        config.add( d );
 
         Caesar.configure( config );
         Caesar.process( args );
