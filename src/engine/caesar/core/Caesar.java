@@ -29,41 +29,26 @@ public class Caesar {
     private static Map< String, AnnotatedArgument > ARG_CONFIG;
     private static Map< String, HashSet< AnnotatedArgument > > ARG_ALIASES;
 
-//    /**
-//     * Fetching results differ depending on the rule set.
-//     * Fields are accessed via their index from @INDEXED_FETCH because they are anonymous and
-//     * cannot be found using a name.
-//     * Annotated arguments on the other hand are identified and hence their values can be
-//     * retrieved from @ANNOTATED_FETCH providing their name.
-//     */
-//    private static List< String > INDEXED_FETCH;
-//    private static Map< String, List< String > > ANNOTATED_FETCH;
-//    private static Map< String, HashSet< String > > ALIASES;
-//
-//    /**
-//     * Calibrating the parser is an important step, because
-//     * it stores the parsing rules and validates them (checks for
-//     * inconsistencies).
-//     *
-//     * Inconsistencies could be:
-//     * 1) duplicate fixed indices
-//     * 2) incoherent indices (not directly following each other)
-//     */
+    /** These collections store the parsing results. Values of fields are stored inside of @FIELDS,
+     *  values of arguments however are stored inside of @ARGS along with their identifier.
+     */
+    private static List< String > FIELDS;
+    private static Map< String, List< String > > ARGS;
 
     /** Caesar doesn't know how to parse the program arguments without
      *  a definite rule set - it must therefore first be configured before usage.
      */
-    public static void configure( List< Argument > fragments ) {
+    public static void configure( List< Argument > configuration ) {
 
         /* -------------------------------------------------------------
          * 1. Step: Finding field declarations and validating them.
          * ------------------------------------------------------------- */
-        Caesar.FIELD_CONFIG = Caesar.getFieldConfigurations( fragments );
+        Caesar.FIELD_CONFIG = Caesar.getFieldConfigurations( configuration );
 
         /* -------------------------------------------------------------
          * 2. Step: Finding argument declarations and validating them.
          * ------------------------------------------------------------- */
-        Caesar.ARG_CONFIG = Caesar.getArgumentConfigurations( fragments );
+        Caesar.ARG_CONFIG = Caesar.getArgumentConfigurations( configuration );
 
         /* -------------------------------------------------------------
          * 3. Step: Crosslinking related arguments.
@@ -82,7 +67,7 @@ public class Caesar {
 
     }
 
-    /** This method filters out indexed field arguments from the given
+    /** This function filters out indexed field arguments from the given
      *  collection and then validates them for index coherence before returning.
      */
     private static List< Field > getFieldConfigurations( List< Argument > fragments ) {
@@ -133,7 +118,7 @@ public class Caesar {
 
     }
 
-    /** This method filters out annotated arguments from the given
+    /** This function filters out annotated arguments from the given
      *  collection and then searches for duplicates before returning.
      *
      *  Returning a map of an annotated argument with its identifier
@@ -205,7 +190,7 @@ public class Caesar {
 
     }
 
-    /** This method groups together arguments that alias each other.
+    /** This function groups together arguments that alias each other.
      *  Found groups are put into @Caesar.ALIASES and are later used
      *  to detect e.g. dependency clashes.
      */
@@ -231,6 +216,7 @@ public class Caesar {
              * This guarantees that at the end each element of the alias group
              * has been processed.
              */
+            arguments.remove( first.getIdentifier() );
             while ( !query.isEmpty() ) {
 
                 AnnotatedArgument front = query.poll();
@@ -300,166 +286,7 @@ public class Caesar {
 
     }
 
-    public static void fetch( String ... arguments ) {
-
-//        List< String > pool = Arrays.asList( arguments );
-//        /* 1. Step: Fetching field values and validating them.
-//         * ----------------------------------------------------------
-//         * Field values are written to the collection if they match
-//         * the provided scheme of the definition at the same index.
-//         *
-//         * If the collection of fields is smaller than the collection
-//         * of definitions, there is at least one field missing.
-//         * Therefore, an exception must be raised.
-//         */
-//        Caesar.INDEXED_FETCH = new ArrayList<>();
-//        try {
-//
-//            for ( int i = 0; i < INDEXED_RULES.size(); i++ ) {
-//
-//                //Checking if field with this index still exists.
-//                if ( i < pool.size() ) {
-//
-//                    /* The access index is always zero, because an already validated
-//                     * value (the first one) is removed from the list, shifting the following
-//                     * element to its position.
-//                     */
-//                    String target = pool.get( 0 );
-//
-//                    //Determining if field matches the scheme.
-//                    if ( INDEXED_RULES.get( i ).applies( target ) ) {
-//
-//                        INDEXED_FETCH.add( target );
-//                        pool.remove( 0 );
-//
-//                    } else throw new SchemeMismatchException( target );
-//
-//                } else throw new EssentialArgumentMissingException( i );
-//
-//            }
-//
-//        } catch ( SchemeMismatchException | EssentialArgumentMissingException exception ) {
-//
-//            exception.printStackTrace();
-//
-//        }
-//
-//        /* 2. Step: Fetching flags and groups and validating them
-//         *          (excluding dependencies).
-//         * ----------------------------------------------------------
-//         * Flags and groups are annotated arguments.
-//         * They are extracted and validated with respect to identifier values
-//         * and alternative labels.
-//         */
-//        Caesar.ANNOTATED_FETCH = new HashMap<>();
-//        try {
-//
-//            if ( ANNOTATED_RULES.size() > 0 ) {
-//
-//                /* @parent is defined if the flag of a group has been detected in the
-//                 * previous iteration - this group is considered the parent of the
-//                 * coming argument.
-//                 * It provides context to which scheme must be applied to the following
-//                 * argument.
-//                 */
-//                Group          parent = null;
-//                List< String > values = null;
-//                int    expectedValues = 0;
-//
-//                AnnotatedArgument candidate;
-//
-//                //Iterating over remaining arguments after removing field values.
-//                for ( String element : pool ) {
-//
-//                    /* Each iteration could yield a new annotated argument (simple flag or group),
-//                     * therefore, each time a possible candidate must be evaluated.
-//                     */
-//                    candidate = ANNOTATED_RULES.get( element );
-//                    if ( parent == null ) {
-//
-//                        /* If @parent is undefined (the algorithm expects an annotated argument, so either
-//                         * a flag or a group) and the current argument doesn't announce such, then the argument
-//                         * is invalid and therefore an exception is thrown.
-//                         */
-//                        if ( candidate != null ) {
-//
-//                            /* Some annotated arguments might have alternatives or aliases.
-//                             * They exclude each other, which means that if any alternative
-//                             * can be found in the cache collection, an exception is thrown
-//                             * because otherwise there would be multiple arguments that
-//                             * exclude each other.
-//                             */
-//                            boolean excluded = candidate.getAlternatives()
-//                                                        .stream()
-//                                                        .anyMatch( alt -> ANNOTATED_FETCH.containsKey( alt.getIdentifier() ) );
-//                            if ( !excluded ) {
-//
-//                                if ( candidate instanceof Group ) {
-//
-//                                    parent         = ( Group ) candidate;
-//                                    expectedValues = parent.getSchemes().size();
-//                                    values         = new ArrayList<>();
-//
-//                                } else ANNOTATED_FETCH.put( element, null );
-//
-//                            } else {
-//
-//                                //TODO alt groups
-//                                AnnotatedArgument included = candidate.getAlternatives()
-//                                                                      .stream()
-//                                                                      .filter( alt -> ANNOTATED_FETCH.containsKey( alt.getIdentifier() ) )
-//                                                                      .findAny().get();
-//                                throw new ExcludedArgumentException( element, included.getIdentifier() );
-//
-//                            }
-//
-//                        } else throw new InvalidFlagException( element );
-//
-//                    } else {
-//
-//                        if ( candidate == null ) {
-//
-//                            /* If the scheme applies to the current argument, then it is a valid
-//                             * argument value for @parent.
-//                             * When @values has reached the size of the expected value count,
-//                             * then @parent is set back to null, so that the next iteration can
-//                             * start and a new group or flag can be processed.
-//                             */
-//                            Scheme scheme = parent.getSchemes().get( values.size() );
-//                            if ( scheme.applies( element ) ) {
-//
-//                                values.add( element );
-//                                if ( values.size() == expectedValues ) {
-//
-//                                    ANNOTATED_FETCH.put( parent.getIdentifier(), values );
-//                                    parent = null;
-//
-//                                }
-//
-//                            } else throw new SchemeMismatchException( element );
-//
-//                        } else throw new TooFewArgumentValuesException( parent.getIdentifier(), values.size(), expectedValues );
-//
-//                    }
-//
-//                }
-//
-//                /* If parent is not null, parsing wasn't done because there were
-//                 * some argument values missing.
-//                 */
-//                if ( parent != null ) {
-//
-//                    throw new TooFewArgumentValuesException( parent.getIdentifier(), values.size(), parent.getSchemes().size() );
-//
-//                }
-//
-//            }
-//
-//        } catch ( InvalidFlagException | ExcludedArgumentException | SchemeMismatchException | TooFewArgumentValuesException exception ) {
-//
-//            exception.printStackTrace();
-//
-//        }
+//    public static void evaluate( String ... arguments ) {
 //
 //        /* 3. Step: Evaluating dependencies and their fulfillment.
 //         * ----------------------------------------------------------
@@ -511,47 +338,215 @@ public class Caesar {
 //            exception.printStackTrace();
 //
 //        }
+//
+//    }
+
+    public static Optional< String > getValue( int index ) {
+
+        return Optional.ofNullable( Caesar.FIELDS.get( index ) );
 
     }
 
-//    public static String getValue( int index ) {
-//
-//        return Caesar.INDEXED_FETCH.get( index );
-//
-//    }
-//
-//    public static String getValue( String identifier ) {
-//
-//        return Caesar.ANNOTATED_FETCH.get( identifier );
-//
-//    }
-//
-//    public static boolean isPresent( String identifier ) {
-//
-//        return Caesar.ANNOTATED_FETCH.containsKey( identifier );
-//
-//    }
+    public static Optional< List< String > > getValues( String argument ) {
+
+        return Optional.ofNullable( Caesar.ARGS.get( argument ) );
+
+    }
+
+    public static boolean isPresent( String argument ) {
+
+        return Caesar.ARGS.containsKey( argument );
+
+    }
+
+    public static void process( List< String > fragments ) {
+
+        /* ------------------------------------------------------------------
+         * 1. Step: Getting field values and comparing them against schemes.
+         * ------------------------------------------------------------------ */
+        Caesar.FIELDS = Caesar.getFields( Caesar.FIELD_CONFIG, fragments );
+
+        /* ------------------------------------------------------------------
+         * 2. Step: Getting argument values and comparing them against schemes.
+         * ------------------------------------------------------------------ */
+        Caesar.ARGS = Caesar.getArguments( Caesar.ARG_CONFIG,
+                                           Caesar.ARG_ALIASES,
+                                           fragments.subList( Caesar.FIELDS.size(), fragments.size() ) );
+
+    }
+
+    /** This function scans through the set of program arguments, searches for fields
+     *  and validates their values with help of their respective schemes.
+     *  If all values have the right format, the collection of values is returned.
+     */
+    private static List< String > getFields( List< Field > config, List< String > fragments ) {
+
+        List< String > result = new ArrayList<>();
+        try {
+
+            for ( int i = 0; i < config.size(); i++ ) {
+
+                /* If fragments doesn't hold the value at this index,
+                 * the whole collection (and amount of fields) must be
+                 * smaller than the specified amount of fields.
+                 * Then, an exception is thrown, because there are too
+                 * few fields provided.
+                 */
+                if ( i < fragments.size() ) {
+
+                    String candidate = fragments.get( i );
+                    if ( config.get( i ).getScheme().applies( candidate ) ) {
+
+                        result.add( candidate );
+
+                    } else throw new SchemeMismatchException( candidate );
+
+                } else throw new EssentialArgumentMissingException( i );
+
+            }
+
+        } catch ( EssentialArgumentMissingException | SchemeMismatchException exception ) {
+
+            exception.printStackTrace();
+
+        }
+
+        return result;
+
+    }
+
+    /** This function scans through the set of program arguments, searches for arguments
+     *  and their values and validates them with help of the respective schemes.
+     *  If all values have the right format, the collection of annotated arguments is returned.
+     */
+    private static Map< String, List< String > > getArguments( Map< String, AnnotatedArgument > config, Map< String, HashSet< AnnotatedArgument > > aliases, List< String > fragments ) {
+
+        Map< String, List< String > > result = new HashMap<>();
+        if ( config.size() > 0 ) {
+
+            try {
+
+                /* The field @parent is defined if previously its flag has been
+                 * detected. The group itself is considered the 'parent' of the
+                 * arguments to come.
+                 */
+                Group parent = null;
+                List< String > values = null;
+                int expected = 0;
+                AnnotatedArgument candidate;
+
+                /* Each iteration yields another fragment (basically part of the program
+                 * arguments) which could indicate another argument coming or is one
+                 * value of the currently inspected argument.
+                 */
+                for ( String fragment : fragments ) {
+
+                    candidate = config.get( fragment );
+                    if ( parent == null ) {
+
+                        /* If @parent is defined, the algorithm expects another argument,
+                         * so either a flag or a group.
+                         * However, if @candidate is undefined, it means that the current
+                         * fragment is invalid and hence an exception is thrown.
+                         */
+                        if ( candidate != null ) {
+
+                            /* If any alternative or alias can be found within the resulting
+                             * collection, the current argument is automatically excluded.
+                             * When @excluder is defined, then there are two arguments present
+                             * that exclude each other and an exception is thrown.
+                             */
+                            Optional< AnnotatedArgument > excluder = aliases.get( fragment )
+                                                                            .stream()
+                                                                            .filter( alt -> result.containsKey( alt.getIdentifier() ) )
+                                                                            .findAny();
+                            if ( excluder.isEmpty() ) {
+
+                                if ( candidate instanceof Group ) {
+
+                                    parent = ( Group ) candidate;
+                                    expected = parent.getSchemes().size();
+                                    values = new ArrayList<>();
+
+                                } else result.put( fragment, null );
+
+                            } else throw new ExcludedArgumentException( fragment, excluder.get().getIdentifier() );
+
+                        } else throw new InvalidFlagException( fragment );
+
+                    } else {
+
+                        /* In case @candidate is defined, an exception is thrown
+                         * because it means that another flag has been read before
+                         * finishing reading the values for @parent.
+                         */
+                        if ( candidate == null ) {
+
+                            /* If the scheme applies to the fragment, then it is a valid
+                             * argument value for @parent and therefore is stored in @values.
+                             * However, when @values has stored all expected values,
+                             * then @parent is set back to null, so that the next iteration
+                             * can start reading a new flag without causing an exception.
+                             */
+                            Scheme scheme = parent.getSchemes().get( values.size() );
+                            if ( scheme.applies( fragment ) ) {
+
+                                values.add( fragment );
+                                if ( values.size() == expected ) {
+
+                                    result.put( parent.getIdentifier(), values );
+                                    parent = null;
+
+                                }
+
+                            } else throw new SchemeMismatchException( fragment );
+
+                        } else throw new TooFewGroupValuesException( parent.getIdentifier(), values.size(), expected );
+
+                    }
+
+                }
+
+                /* If after iterating over the program arguments, @parent is still defined,
+                 * it means, that parsing wasn't done because there were still some argument
+                 * values missing.
+                 */
+                if ( parent != null ) {
+
+                    throw new TooFewGroupValuesException( parent.getIdentifier(), values.size(), expected );
+
+                }
+
+            } catch ( InvalidFlagException | ExcludedArgumentException | TooFewGroupValuesException | SchemeMismatchException exception ) {
+
+                exception.printStackTrace();
+
+            }
+
+        }
+
+        return result;
+
+    }
 
     public static void main( String ... arguments ) {
 
-        List< Argument > config = new ArrayList<>();
-        Flag a = new Flag( false, "-a", null, null );
-        Flag b = new Flag( false, "-b", Collections.singletonList(a), null );
-        Flag c = new Flag( false, "-c", Collections.singletonList(b), null );
-        Flag d = new Flag( false, "-d", Collections.singletonList(b), null );
+        List< String > args = new ArrayList<>();
+        args.add( "-d" );
+        args.add( "30" );
+        args.add( "40" );
+        args.add( "-c" );
+        args.add( "20" );
 
+        List< Argument > config = new ArrayList<>();
+        Group c = new Group( true, "-c", Scheme.INTEGER, null, null );
+        Group d = new Group( false, "-d", Arrays.asList( Scheme.INTEGER, Scheme.INTEGER ), null, null );
         config.add( c );
-        config.add( a );
         config.add( d );
-        config.add( b );
 
         Caesar.configure( config );
-        ARG_ALIASES.forEach( ( k, aliases ) -> {
-
-            System.out.println( "key: " + k );
-            aliases.forEach( arg -> System.out.println( arg.getIdentifier() + " / " + arg.isEssential() ) );
-
-        } );
+        Caesar.process( args );
+//        System.out.println( Caesar.getValues( "-d" ).orElse( new ArrayList<>() ).size() );
 
     }
 

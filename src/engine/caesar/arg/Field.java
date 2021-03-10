@@ -5,23 +5,23 @@ public class Field extends Argument {
     private Scheme scheme;
     private int index;
 
-    public Field( Scheme scheme, int index ) {
+    public Field( int index, Scheme scheme ) {
 
         super( true );
-        this.scheme = scheme;
         this.index  = Math.max( 0, index );
-
-    }
-
-    public Scheme getScheme() {
-
-        return this.scheme;
+        this.scheme = scheme;
 
     }
 
     public int getIndex() {
 
         return this.index;
+
+    }
+
+    public Scheme getScheme() {
+
+        return this.scheme;
 
     }
 
