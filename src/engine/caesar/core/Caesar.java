@@ -3,7 +3,6 @@ package engine.caesar.core;
 import engine.caesar.arg.*;
 import engine.caesar.exception.*;
 
-import java.awt.*;
 import java.util.*;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -40,7 +39,8 @@ public class Caesar {
     /** Caesar doesn't know how to parse the program arguments without
      *  a definite rule set - it must therefore first be configured before usage.
      */
-    public static void configure( List< Argument > configuration ) {
+    public static void configure( List< Argument > configuration )
+    throws IncoherentFieldsException, FieldClashException, DuplicateArgumentDefinitionException, DependencyClashExeption {
 
         /* -------------------------------------------------------------
          * 1. Step: Finding field declarations and validating them.
@@ -77,7 +77,8 @@ public class Caesar {
     /** This function filters out indexed field arguments from the given
      *  collection and then validates them for index coherence before returning.
      */
-    private static List< Field > getFieldConfigurations( List< Argument > fragments ) {
+    private static List< Field > getFieldConfigurations( List< Argument > fragments )
+    throws FieldClashException, IncoherentFieldsException {
 
         List< Field > fields = fragments.stream()
                                         .filter( arg -> arg instanceof Field )
@@ -94,27 +95,19 @@ public class Caesar {
          * means that an index in between is not claimed by a field,
          * another exception is thrown.
          */
-        try {
+        int last = -1;
+        for ( Field field : fields ) {
 
-            int last = -1;
-            for ( Field field : fields ) {
+            int claim = field.getIndex();
+            if ( claim == last ) {
 
-                int claim = field.getIndex();
-                if ( claim == last ) {
+                throw new FieldClashException( claim );
 
-                    throw new FieldClashException( claim );
+            } else if ( claim - last > 1 ) {
 
-                } else if ( claim - last > 1 ) {
+                throw new IncoherentFieldsException( claim, last + 1 );
 
-                    throw new IncoherentFieldsException( claim, last + 1 );
-
-                } else last = claim;
-
-            }
-
-        } catch ( FieldClashException | IncoherentFieldsException exception ) {
-
-            exception.printStackTrace();
+            } else last = claim;
 
         }
 
@@ -133,32 +126,25 @@ public class Caesar {
      *  but this also allows for theoretical faster access speeds
      *  when working with the parsed arguments.
      */
-    private static Map< String, AnnotatedArgument > getArgumentConfigurations( List< Argument > fragments ) {
+    private static Map< String, AnnotatedArgument > getArgumentConfigurations( List< Argument > fragments )
+    throws DuplicateArgumentDefinitionException {
 
         Map< String, AnnotatedArgument > result = new HashMap<>();
-        fragments.forEach( arg -> {
+        for ( Argument arg : fragments ) {
 
-            try {
+            if ( arg instanceof AnnotatedArgument ) {
 
-                if ( arg instanceof AnnotatedArgument ) {
+                AnnotatedArgument annotated = ( AnnotatedArgument ) arg;
+                String identifier = annotated.getIdentifier();
+                if ( !result.containsKey( identifier ) ) {
 
-                    AnnotatedArgument annotated = ( AnnotatedArgument ) arg;
-                    String identifier = annotated.getIdentifier();
-                    if ( !result.containsKey( identifier ) ) {
+                    result.put( identifier, annotated );
 
-                        result.put( identifier, annotated );
-
-                    } else throw new DuplicateArgumentDefinitionException( identifier );
-
-                }
-
-            } catch ( DuplicateArgumentDefinitionException exception ) {
-
-                exception.printStackTrace();
+                } else throw new DuplicateArgumentDefinitionException( identifier );
 
             }
 
-        } );
+        }
 
         return result;
 
@@ -311,7 +297,8 @@ public class Caesar {
 
     }
 
-    private static void checkDependencies( Map< String, AnnotatedArgument > config, Map< String, HashSet< AnnotatedArgument > > aliases ) {
+    private static void checkDependencies( Map< String, AnnotatedArgument > config, Map< String, HashSet< AnnotatedArgument > > aliases )
+    throws DependencyClashExeption {
 
         for ( Map.Entry< String, AnnotatedArgument > element : config.entrySet() ) {
 
@@ -325,28 +312,20 @@ public class Caesar {
             HashSet< AnnotatedArgument > dependencies = new HashSet<>( argument.getDependencies() );
             for ( AnnotatedArgument dependency : dependencies ) {
 
-                try {
+                /* For each dependency of @argument, its alternatives are retrieved.
+                 * If any of its alternatives can also be found in @argument's dependency
+                 * collection, then @clashing is defined (as another dependency that is also
+                 * an alternative to the currently inspected dependency) and an exception is thrown
+                 * because this means that two alternative arguments (which exclude each other)
+                 * are set as a dependency for @argument.
+                 */
+                HashSet< AnnotatedArgument > alternatives = aliases.get( dependency.getIdentifier() );
+                Optional< AnnotatedArgument> clashing = alternatives.stream().filter( dependencies::contains ).findAny();
+                if ( clashing.isPresent() ) {
 
-                    /* For each dependency of @argument, its alternatives are retrieved.
-                     * If any of its alternatives can also be found in @argument's dependency
-                     * collection, then @clashing is defined (as another dependency that is also
-                     * an alternative to the currently inspected dependency) and an exception is thrown
-                     * because this means that two alternative arguments (which exclude each other)
-                     * are set as a dependency for @argument.
-                     */
-                    HashSet< AnnotatedArgument > alternatives = aliases.get( dependency.getIdentifier() );
-                    Optional< AnnotatedArgument> clashing = alternatives.stream().filter( dependencies::contains ).findAny();
-                    if ( clashing.isPresent() ) {
-
-                        throw new DependencyClashExeption( dependency.getIdentifier(),
-                                                           clashing.get().getIdentifier(),
-                                                           argument.getIdentifier() );
-
-                    }
-
-                } catch ( DependencyClashExeption exception ) {
-
-                    exception.printStackTrace();
+                    throw new DependencyClashExeption( dependency.getIdentifier(),
+                                                       clashing.get().getIdentifier(),
+                                                       argument.getIdentifier() );
 
                 }
 
@@ -411,7 +390,8 @@ public class Caesar {
 //
 //    }
 
-    public static void process( List< String > fragments ) {
+    public static void process( List< String > fragments )
+    throws SchemeMismatchException, EssentialArgumentMissingException, TooFewGroupValuesException, InvalidFlagException, ExcludedArgumentException {
 
         /* ------------------------------------------------------------------
          * 1. Step: Getting field values and comparing them against schemes.
@@ -431,35 +411,28 @@ public class Caesar {
      *  and validates their values with help of their respective schemes.
      *  If all values have the right format, the collection of values is returned.
      */
-    private static List< String > getFields( List< Field > config, List< String > fragments ) {
+    private static List< String > getFields( List< Field > config, List< String > fragments )
+    throws SchemeMismatchException, EssentialArgumentMissingException {
 
         List< String > result = new ArrayList<>();
-        try {
+        for ( int i = 0; i < config.size(); i++ ) {
 
-            for ( int i = 0; i < config.size(); i++ ) {
+            /* If fragments doesn't hold the value at this index,
+             * the whole collection (and amount of fields) must be
+             * smaller than the specified amount of fields.
+             * Then, an exception is thrown, because there are too
+             * few fields provided.
+             */
+            if ( i < fragments.size() ) {
 
-                /* If fragments doesn't hold the value at this index,
-                 * the whole collection (and amount of fields) must be
-                 * smaller than the specified amount of fields.
-                 * Then, an exception is thrown, because there are too
-                 * few fields provided.
-                 */
-                if ( i < fragments.size() ) {
+                String candidate = fragments.get( i );
+                if ( config.get( i ).getScheme().applies( candidate ) ) {
 
-                    String candidate = fragments.get( i );
-                    if ( config.get( i ).getScheme().applies( candidate ) ) {
+                    result.add( candidate );
 
-                        result.add( candidate );
+                } else throw new SchemeMismatchException( candidate );
 
-                    } else throw new SchemeMismatchException( candidate );
-
-                } else throw new EssentialArgumentMissingException( i );
-
-            }
-
-        } catch ( EssentialArgumentMissingException | SchemeMismatchException exception ) {
-
-            exception.printStackTrace();
+            } else throw new EssentialArgumentMissingException( i );
 
         }
 
@@ -471,107 +444,100 @@ public class Caesar {
      *  and their values and validates them with help of the respective schemes.
      *  If all values have the right format, the collection of annotated arguments is returned.
      */
-    private static Map< String, List< String > > getArguments( Map< String, AnnotatedArgument > config, Map< String, HashSet< AnnotatedArgument > > aliases, List< String > fragments ) {
+    private static Map< String, List< String > > getArguments( Map< String, AnnotatedArgument > config, Map< String, HashSet< AnnotatedArgument > > aliases, List< String > fragments )
+    throws ExcludedArgumentException, InvalidFlagException, SchemeMismatchException, TooFewGroupValuesException {
 
         Map< String, List< String > > result = new HashMap<>();
         if ( config.size() > 0 ) {
 
-            try {
+            /* The field @parent is defined if previously its flag has been
+             * detected. The group itself is considered the 'parent' of the
+             * arguments to come.
+             */
+            Group parent = null;
+            List< String > values = null;
+            int expected = 0;
+            AnnotatedArgument candidate;
 
-                /* The field @parent is defined if previously its flag has been
-                 * detected. The group itself is considered the 'parent' of the
-                 * arguments to come.
-                 */
-                Group parent = null;
-                List< String > values = null;
-                int expected = 0;
-                AnnotatedArgument candidate;
+            /* Each iteration yields another fragment (basically part of the program
+             * arguments) which could indicate another argument coming or is one
+             * value of the currently inspected argument.
+             */
+            for ( String fragment : fragments ) {
 
-                /* Each iteration yields another fragment (basically part of the program
-                 * arguments) which could indicate another argument coming or is one
-                 * value of the currently inspected argument.
-                 */
-                for ( String fragment : fragments ) {
+                candidate = config.get( fragment );
+                if ( parent == null ) {
 
-                    candidate = config.get( fragment );
-                    if ( parent == null ) {
+                    /* If @parent is defined, the algorithm expects another argument,
+                     * so either a flag or a group.
+                     * However, if @candidate is undefined, it means that the current
+                     * fragment is invalid and hence an exception is thrown.
+                     */
+                    if ( candidate != null ) {
 
-                        /* If @parent is defined, the algorithm expects another argument,
-                         * so either a flag or a group.
-                         * However, if @candidate is undefined, it means that the current
-                         * fragment is invalid and hence an exception is thrown.
+                        /* If any alternative or alias can be found within the resulting
+                         * collection, the current argument is automatically excluded.
+                         * When @excluder is defined, then there are two arguments present
+                         * that exclude each other and an exception is thrown.
                          */
-                        if ( candidate != null ) {
+                        Optional< AnnotatedArgument > excluder = aliases.get( fragment )
+                                                                        .stream()
+                                                                        .filter( alt -> result.containsKey( alt.getIdentifier() ) )
+                                                                        .findAny();
+                        if ( excluder.isEmpty() ) {
 
-                            /* If any alternative or alias can be found within the resulting
-                             * collection, the current argument is automatically excluded.
-                             * When @excluder is defined, then there are two arguments present
-                             * that exclude each other and an exception is thrown.
-                             */
-                            Optional< AnnotatedArgument > excluder = aliases.get( fragment )
-                                                                            .stream()
-                                                                            .filter( alt -> result.containsKey( alt.getIdentifier() ) )
-                                                                            .findAny();
-                            if ( excluder.isEmpty() ) {
+                            if ( candidate instanceof Group ) {
 
-                                if ( candidate instanceof Group ) {
+                                parent = ( Group ) candidate;
+                                expected = parent.getSchemes().size();
+                                values = new ArrayList<>();
 
-                                    parent = ( Group ) candidate;
-                                    expected = parent.getSchemes().size();
-                                    values = new ArrayList<>();
+                            } else result.put( fragment, null );
 
-                                } else result.put( fragment, null );
+                        } else throw new ExcludedArgumentException( fragment, excluder.get().getIdentifier() );
 
-                            } else throw new ExcludedArgumentException( fragment, excluder.get().getIdentifier() );
+                    } else throw new InvalidFlagException( fragment );
 
-                        } else throw new InvalidFlagException( fragment );
+                } else {
 
-                    } else {
+                    /* In case @candidate is defined, an exception is thrown
+                     * because it means that another flag has been read before
+                     * finishing reading the values for @parent.
+                     */
+                    if ( candidate == null ) {
 
-                        /* In case @candidate is defined, an exception is thrown
-                         * because it means that another flag has been read before
-                         * finishing reading the values for @parent.
+                        /* If the scheme applies to the fragment, then it is a valid
+                         * argument value for @parent and therefore is stored in @values.
+                         * However, when @values has stored all expected values,
+                         * then @parent is set back to null, so that the next iteration
+                         * can start reading a new flag without causing an exception.
                          */
-                        if ( candidate == null ) {
+                        Scheme scheme = parent.getSchemes().get( values.size() );
+                        if ( scheme.applies( fragment ) ) {
 
-                            /* If the scheme applies to the fragment, then it is a valid
-                             * argument value for @parent and therefore is stored in @values.
-                             * However, when @values has stored all expected values,
-                             * then @parent is set back to null, so that the next iteration
-                             * can start reading a new flag without causing an exception.
-                             */
-                            Scheme scheme = parent.getSchemes().get( values.size() );
-                            if ( scheme.applies( fragment ) ) {
+                            values.add( fragment );
+                            if ( values.size() == expected ) {
 
-                                values.add( fragment );
-                                if ( values.size() == expected ) {
+                                result.put( parent.getIdentifier(), values );
+                                parent = null;
 
-                                    result.put( parent.getIdentifier(), values );
-                                    parent = null;
+                            }
 
-                                }
+                        } else throw new SchemeMismatchException( fragment );
 
-                            } else throw new SchemeMismatchException( fragment );
-
-                        } else throw new TooFewGroupValuesException( parent.getIdentifier(), values.size(), expected );
-
-                    }
+                    } else throw new TooFewGroupValuesException( parent.getIdentifier(), values.size(), expected );
 
                 }
 
-                /* If after iterating over the program arguments, @parent is still defined,
-                 * it means, that parsing wasn't done because there were still some argument
-                 * values missing.
-                 */
-                if ( parent != null ) {
+            }
 
-                    throw new TooFewGroupValuesException( parent.getIdentifier(), values.size(), expected );
+            /* If after iterating over the program arguments, @parent is still defined,
+             * it means, that parsing wasn't done because there were still some argument
+             * values missing.
+             */
+            if ( parent != null ) {
 
-                }
-
-            } catch ( InvalidFlagException | ExcludedArgumentException | TooFewGroupValuesException | SchemeMismatchException exception ) {
-
-                exception.printStackTrace();
+                throw new TooFewGroupValuesException( parent.getIdentifier(), values.size(), expected );
 
             }
 
@@ -611,8 +577,16 @@ public class Caesar {
         config.add( b );
         config.add( c );
 
-        Caesar.configure( config );
-        Caesar.process( args );
+        try {
+
+            Caesar.configure( config );
+            Caesar.process( args );
+
+        } catch ( Exception exception ) {
+
+            exception.printStackTrace();
+
+        }
 //        System.out.println( Caesar.getValues( "-d" ).orElse( new ArrayList<>() ).size() );
 
     }
