@@ -4,7 +4,6 @@ import engine.caesar.arg.*;
 import engine.caesar.exception.*;
 
 import java.util.*;
-import java.util.List;
 import java.util.stream.Collectors;
 
 public class Caesar {
@@ -70,7 +69,7 @@ public class Caesar {
         /* -------------------------------------------------------------
          * 6. Step: Checking for dependency clashes.
          * ------------------------------------------------------------- */
-        Caesar.checkDependencies( Caesar.ARG_CONFIG, Caesar.ARG_ALIASES );
+        Caesar.checkDependencyClashes( Caesar.ARG_CONFIG, Caesar.ARG_ALIASES );
 
     }
 
@@ -297,7 +296,13 @@ public class Caesar {
 
     }
 
-    private static void checkDependencies( Map< String, AnnotatedArgument > config, Map< String, HashSet< AnnotatedArgument > > aliases )
+    /** This method determines whether a dependency clash is present.
+     *  A dependency clash is present if an argument has two dependencies
+     *  that are aliases and hence exclude each other.
+     *  In that case, the dependencies could not coexist and hence
+     *  dependency requirements are never met.
+     */
+    private static void checkDependencyClashes( Map< String, AnnotatedArgument > config, Map< String, HashSet< AnnotatedArgument > > aliases )
     throws DependencyClashExeption {
 
         for ( Map.Entry< String, AnnotatedArgument > element : config.entrySet() ) {
@@ -335,67 +340,20 @@ public class Caesar {
 
     }
 
-//    public static void evaluate( String ... arguments ) {
-//
-//        /* 3. Step: Evaluating dependencies and their fulfillment.
-//         * ----------------------------------------------------------
-//         * Annotated arguments can have dependencies which must be evaluated.
-//         * If an argument doesn't have its dependencies fulfilled, an
-//         * exception is thrown.
-//         */
-//        try {
-//
-//            for ( String argument : ANNOTATED_FETCH.keySet() ) {
-//
-//                List< AnnotatedArgument > dependencies = ANNOTATED_RULES.get( argument ).getDependencies();
-//                for ( AnnotatedArgument dependency : dependencies ) {
-//
-//                    String identifier = dependency.getIdentifier();
-//                    if ( !ANNOTATED_FETCH.containsKey( identifier ) ) {
-//
-//                        throw new UnfulfilledArgumentDependencyException( argument, identifier );
-//
-//                    }
-//
-//                }
-//
-//            }
-//
-//        } catch ( UnfulfilledArgumentDependencyException exception ) {
-//
-//            exception.printStackTrace();
-//
-//        }
-//
-//        /* x. Step: Checking if all essential arguments are provided.
-//         * ----------------------------------------------------------
-//         */
-//        try {
-//
-//            for ( Map.Entry< String, AnnotatedArgument > entry : ANNOTATED_RULES.entrySet() ) {
-//
-//                if ( entry.getValue().isEssential() && !ANNOTATED_FETCH.containsKey( entry.getKey() ) ) {
-//
-//                    throw new EssentialArgumentMissingException( entry.getKey() );
-//
-//                }
-//
-//            }
-//
-//        } catch ( EssentialArgumentMissingException exception ) {
-//
-//            exception.printStackTrace();
-//
-//        }
-//
-//    }
-
+    /** This method parses arguments using predefined and
+     *  validated rules.
+     *
+     *  Values are stored in their respective collection
+     *  and then it checks if all essential arguments are
+     *  present and if dependency declarations are fulfilled.
+     */
     public static void process( List< String > fragments )
-    throws SchemeMismatchException, EssentialArgumentMissingException, TooFewGroupValuesException, InvalidFlagException, ExcludedArgumentException {
+    throws SchemeMismatchException, EssentialArgumentMissingException, TooFewGroupValuesException, InvalidFlagException,
+           ExcludedArgumentException, UnfulfilledArgumentDependencyException {
 
         /* ------------------------------------------------------------------
-         * 1. Step: Getting field values and comparing them against schemes.
-         * ------------------------------------------------------------------ */
+         * 1. Step: Getting field vacomparing them against schemes.
+         * --------------------------------------------------------- */
         Caesar.FIELDS = Caesar.getFields( Caesar.FIELD_CONFIG, fragments );
 
         /* ------------------------------------------------------------------
@@ -404,6 +362,16 @@ public class Caesar {
         Caesar.ARGS = Caesar.getArguments( Caesar.ARG_CONFIG,
                                            Caesar.ARG_ALIASES,
                                            fragments.subList( Caesar.FIELDS.size(), fragments.size() ) );
+
+        /* ----------------- -------------------------------------------------
+         * 3. Step: Checking if all essential arguments are present.
+         * ------------------------------------------------------------------ */
+        Caesar.checkEssentialsPresent( Caesar.ARG_CONFIG, Caesar.ARGS );
+
+        /* ------------------------------------------------------------------
+         * 4. Step: Checking if all dependencies are fulfilled.
+         * ------------------------------------------------------------------ */
+        Caesar.checkDependencyFulfillment( Caesar.ARG_CONFIG, Caesar.ARGS );
 
     }
 
@@ -490,7 +458,22 @@ public class Caesar {
 
                                 parent = ( Group ) candidate;
                                 expected = parent.getSchemes().size();
-                                values = new ArrayList<>();
+
+                                /* If @parent is group but the group itself has no
+                                 * expected children, the group might also be considered
+                                 * a flag (because technically it is) and hence
+                                 * @parent is set back to null for further parsing.
+                                 */
+                                if ( expected > 0 ) {
+
+                                    values = new ArrayList<>();
+
+                                } else {
+
+                                    parent = null;
+                                    result.put( fragment, null );
+
+                                }
 
                             } else result.put( fragment, null );
 
@@ -547,6 +530,48 @@ public class Caesar {
 
     }
 
+    /** This method checks whether all essential arguments are provided.
+     */
+    private static void checkEssentialsPresent( Map< String, AnnotatedArgument > config, Map< String, List< String > > arguments )
+    throws EssentialArgumentMissingException {
+
+        for ( Map.Entry< String, AnnotatedArgument > entry : config.entrySet() ) {
+
+            String identifier = entry.getKey();
+            if ( entry.getValue().isEssential() && !arguments.containsKey( identifier ) ) {
+
+                throw new EssentialArgumentMissingException( identifier );
+
+            }
+
+        }
+
+    }
+
+    /** This method checks whether all dependency requirements are met.
+     */
+    private static void checkDependencyFulfillment( Map< String, AnnotatedArgument > config, Map< String, List< String > > arguments )
+    throws UnfulfilledArgumentDependencyException {
+
+        System.out.println( arguments.keySet() );
+        for ( String argument : arguments.keySet() ) {
+
+            List< AnnotatedArgument > dependencies = config.get( argument ).getDependencies();
+            for ( AnnotatedArgument dependency : dependencies ) {
+
+                String suspected = dependency.getIdentifier();
+                if ( !arguments.containsKey( suspected ) ) {
+
+                    throw new UnfulfilledArgumentDependencyException( argument, suspected );
+
+                }
+
+            }
+
+        }
+
+    }
+
     public static Optional< String > getValue( int index ) {
 
         return Optional.ofNullable( Caesar.FIELDS.get( index ) );
@@ -565,17 +590,28 @@ public class Caesar {
 
     }
 
+    //TODO
+    //1. Removing " from string values
+    //2. var args
+    //3. =
+    //4. Verzweigungslogik
+    //5. alias checking with dependencies
+    //6. aliases are not forced to have same config (dependencies)
+    //7. if dependecny b is essential, then a must also be essentiall
     public static void main( String ... arguments ) {
 
         List< String > args = new ArrayList<>();
+        args.add( "-d" );
+        args.add( "-a" );
+        args.add( "-g" );
 
         List< Argument > config = new ArrayList<>();
-        Group a = new Group( true, "-a", Scheme.INTEGER, null, null );
-        Group b = new Group( true, "-b", Arrays.asList( Scheme.INTEGER, Scheme.INTEGER ), Collections.singletonList( a ), null );
-        Group c = new Group( true, "-c", Scheme.PASS_ALL, null, Arrays.asList( a, b ) );
+        Group d = new Group( false, "-d", new ArrayList<>(), null,null );
+        Group a = new Group( false, "-a", new ArrayList<>(), null, Collections.singletonList( d ) );
+        Group g = new Group( false, "-g", new ArrayList<>(), null,Arrays.asList( a, d ) );
+        config.add( d );
         config.add( a );
-        config.add( b );
-        config.add( c );
+        config.add( g );
 
         try {
 
@@ -587,6 +623,8 @@ public class Caesar {
             exception.printStackTrace();
 
         }
+
+        Caesar.getValues( "-b" ).orElse( new ArrayList<>() ).forEach( System.out::println );
 //        System.out.println( Caesar.getValues( "-d" ).orElse( new ArrayList<>() ).size() );
 
     }
