@@ -221,7 +221,7 @@ public class Caesar {
             alternatives.forEach( element -> {
 
                 HashSet< AnnotatedArgument > group = ( HashSet< AnnotatedArgument > ) alternatives.clone();
-                alternatives.remove( element );
+                group.remove( element );
 
                 result.put( element.getIdentifier(), group );
 
@@ -297,10 +297,9 @@ public class Caesar {
 
         for ( Map.Entry< String, AnnotatedArgument > rule : Caesar.ARG_CONFIG.entrySet() ) {
 
-            String          identifier = rule.getKey();
             AnnotatedArgument argument = rule.getValue();
-
             HashSet< AnnotatedArgument > dependencies = new HashSet<>( argument.getDependencies() );
+
             for ( AnnotatedArgument dependency : dependencies ) {
 
                 /* For each dependency of @rule, its alternatives are retrieved.
@@ -610,32 +609,124 @@ public class Caesar {
     //         \/     \/    \/    \/     \/     \/  //
     //                                              //
     //////////////////////////////////////////////////
+
+    /** This function retrieves the field value at
+     *  the given index.
+     *
+     *  @return Optional of value (in case it is non-existent).
+     */
     public static Optional< String > getFieldValue( int index ) {
 
         return Optional.ofNullable( Caesar.FIELDS.get( index ) );
 
     }
 
-    public static Optional< List< String > > getArgumentValues( String argument ) {
+    /** This function retrieves the argument values
+     *  of the argument with the given identifier.
+     *
+     *  @return Optional of values (in case there are none).
+     */
+    public static Optional< List< String > > getArgumentValues( String identifier ) {
 
-        return Optional.ofNullable( Caesar.ARGS.get( argument ) );
+        return Optional.ofNullable( Caesar.ARGS.get( identifier ) );
 
     }
 
-    public static boolean isPresent( String argument ) {
+    /** This function checks whether arguments
+     *  with the given identifiers have been parsed.
+     *
+     *  @return whether all of the identified arguments
+     *          are present.
+     */
+    public static boolean isPresent( String ... arguments ) {
 
-        return Caesar.ARGS.containsKey( argument );
+        for ( String argument : arguments ) {
+
+            if ( !Caesar.ARGS.containsKey( argument ) ) {
+
+                return false;
+
+            }
+
+        }
+
+        return true;
+
+    }
+
+    /** This function searches for all directly dependent
+     *  arguments of the identified argument.
+     *
+     *  @return Collection of directly dependent arguments
+     *          mapped to their values.
+     */
+    public static Map< String, List< String > > getDependentArguments( String dependencyIdentifier ) {
+
+        Map< String, List< String > > result = new HashMap<>();
+        if ( Caesar.ARGS.containsKey( dependencyIdentifier ) ) {
+
+            AnnotatedArgument dependency = Caesar.ARG_CONFIG.get( dependencyIdentifier );
+
+            /* If another parsed argument depends on @dependency
+             * (so if @dependency is contained within the argument's
+             * dependency collection), it is stored as a dependent
+             * argument of @dependency along with its values.
+             */
+            Caesar.ARGS.forEach( ( identifier, values ) -> {
+
+                AnnotatedArgument rule = Caesar.ARG_CONFIG.get( identifier );
+                if ( rule.getDependencies().contains( dependency ) ) {
+
+                    result.put( identifier, values );
+
+                }
+
+            } );
+
+        } else new InvalidArgumentException( dependencyIdentifier, "Argument with this identifier could not be found." ).printStackTrace();
+
+        return result;
+
+    }
+
+    /** This function searches for all dependencies
+     *  of the identified argument.
+     *
+     *  @return Collection of dependencies
+     *          mapped to their values.
+     */
+    public static Map< String, List< String > > getDependencies( String dependentIdentifier ) {
+
+        Map< String, List< String > > result = new HashMap<>();
+        if ( Caesar.ARGS.containsKey( dependentIdentifier ) ) {
+
+            AnnotatedArgument dependent = Caesar.ARG_CONFIG.get( dependentIdentifier );
+            dependent.getDependencies().forEach( dependency -> {
+
+                String identifier = dependency.getIdentifier();
+                result.put( identifier, Caesar.ARGS.get( identifier ) );
+
+            } );
+
+        } else new InvalidArgumentException( dependentIdentifier, "Argument with this identifier could not be found." ).printStackTrace();
+
+        return result;
 
     }
 
     public static void main( String ... arguments ) {
 
         List< String > args = new ArrayList<>();
-        args.add( "-h=20;30;40" );
+        args.add( "-a" );
+        args.add( "20" );
+        args.add( "-b" );
+        args.add( "30" );
 
         List< Argument > config = new ArrayList<>();
-        Group h = new Group( true, "-h", Format.EQUATE, Arrays.asList( Scheme.INTEGER, Scheme.INTEGER, Scheme.INTEGER ), null,null );
-        config.add( h );
+        Group a = new Group( true, "-a", Format.WHITESPACE, Scheme.INTEGER, null, null );
+        Group b = new Group( false, "-b", Format.WHITESPACE, Scheme.INTEGER, null, Arrays.asList( a ) );
+        config.add( a );
+        config.add( b );
 
         try {
 
@@ -647,9 +738,6 @@ public class Caesar {
             exception.printStackTrace();
 
         }
-
-        System.out.println( "b" );
-        Caesar.getArgumentValues( "-h" ).get().forEach( System.out::println );
 
     }
 
