@@ -761,29 +761,4 @@ public class Caesar {
 
     }
 
-    //TODO split with :
-    public static void main( String ... arguments ) {
-
-        List< String > args = new ArrayList<>();
-        args.add( "-a:20" );
-
-        List< Argument > config = new ArrayList<>();
-        Group a = new Group( true, "-a", Format.ASSIGNMENT, Scheme.INTEGER, null, null );
-        config.add( a );
-
-        try {
-
-            Caesar.configure( config );
-            Caesar.parse( args );
-
-        } catch ( Exception exception ) {
-
-            exception.printStackTrace();
-
-        }
-
-        Caesar.getValues( "-a" ).get().forEach( System.out::println );
-
-    }
-
 }
