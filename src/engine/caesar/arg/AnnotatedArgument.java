@@ -1,5 +1,7 @@
 package engine.caesar.arg;
 
+import engine.caesar.exception.InvalidArgumentException;
+
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -13,7 +15,20 @@ public abstract class AnnotatedArgument extends Argument {
     public AnnotatedArgument( boolean essential, String identifier, Collection< AnnotatedArgument > alternatives, Collection< AnnotatedArgument > dependencies ) {
 
         super( essential );
-        this.identifier = identifier;
+
+        try {
+
+            if ( !identifier.contains( "=" ) ) {
+
+                this.identifier = identifier;
+
+            } else throw new InvalidArgumentException( identifier, "Identifier is not allowed to contain equals sign." );
+
+        } catch ( InvalidArgumentException exception ) {
+
+            exception.printStackTrace();
+
+        }
         this.alternatives = alternatives == null ? new ArrayList<>() : new ArrayList<>( alternatives );
         this.dependencies = dependencies == null ? new ArrayList<>() : new ArrayList<>( dependencies );
 

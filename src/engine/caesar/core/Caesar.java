@@ -2,6 +2,7 @@ package engine.caesar.core;
 
 import engine.caesar.arg.*;
 import engine.caesar.exception.*;
+import engine.caesar.utils.StringUtils;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -9,12 +10,15 @@ import java.util.stream.Collectors;
 public class Caesar {
 
     /** Program arguments can be separated into two major groups:
-     *      1. Fields: These are anonymous arguments that have a fixed index at
-     *                 which they can be accessed.
-     *      2. Arguments: These are the "real" and identified arguments, sometimes
-     *                    also referred to by the name of "annotated arguments"
-     *                    because they have an identifier or flag as an annotation before
-     *                    the actual argument value.
+     *      1. Fields:
+     *          These are anonymous arguments that have a fixed index at
+     *          which they can be accessed.
+     *
+     *      2. Annotated Argument:
+     *          These are the "real" and identified arguments, sometimes
+     *          also referred to by the name of "annotated arguments"
+     *          because they have an identifier or flag as an annotation before
+     *          the actual argument value.
      *
      *  Since these types are accessed in to very different manners (fields by indices
      *  and arguments by identifier), they are stored in separate data structures.
@@ -27,7 +31,7 @@ public class Caesar {
      */
     private static List< Field > FIELD_CONFIG;
     private static Map< String, AnnotatedArgument > ARG_CONFIG;
-    private static Map< String, HashSet< AnnotatedArgument > > ARG_ALIASES;
+    private static Map< String, HashSet< AnnotatedArgument > > ARG_ALTERNATIVES;
 
     /** These collections store the parsing results. Values of fields are stored inside of @FIELDS,
      *  values of arguments however are stored inside of @ARGS along with their identifier.
@@ -35,61 +39,55 @@ public class Caesar {
     private static List< String > FIELDS;
     private static Map< String, List< String > > ARGS;
 
-    /** Caesar doesn't know how to parse the program arguments without
-     *  a definite rule set - it must therefore first be configured before usage.
+    private static final String GROUP_EQUALS    = "=";
+    private static final String GROUP_SEPARATOR = "(?<!\\\\);";
+
+    /////////////////////////////////////////////////////////////////////
+    //   _________                _____.__                             //
+    //  \_   ___ \  ____   _____/ ____\__| ____  __ _________   ____   //
+    //  /    \  \/ /  _ \ /    \   __\|  |/ ___\|  |  \_  __ \_/ __ \  //
+    //  \     \___(  <_> )   |  \  |  |  / /_/  >  |  /|  | \/\  ___/  //
+    //   \______  /\____/|___|  /__|  |__\___  /|____/ |__|    \___  > //
+    //          \/            \/        /_____/                    \/  //
+    //                                                                 //
+    /////////////////////////////////////////////////////////////////////
+    /** This method configures Caesar according to the given rules.
+     *
+     *  It separates different rule types (for fields and flags/groups),
+     *  links related rules, alignes essentiality settings and checks
+     *  for dependency clashes.
      */
-    public static void configure( List< Argument > configuration )
+    public static void configure( List< Argument > rules )
     throws IncoherentFieldsException, FieldClashException, DuplicateArgumentDefinitionException, DependencyClashExeption {
 
-        /* -------------------------------------------------------------
-         * 1. Step: Finding field declarations and validating them.
-         * ------------------------------------------------------------- */
-        Caesar.FIELD_CONFIG = Caesar.getFieldConfigurations( configuration );
+        Caesar.FIELD_CONFIG = Caesar.getFieldConfiguration( rules );
+        Caesar.ARG_CONFIG   = Caesar.getArgumentConfiguration( rules );
 
-        /* -------------------------------------------------------------
-         * 2. Step: Finding argument declarations and validating them.
-         * ------------------------------------------------------------- */
-        Caesar.ARG_CONFIG = Caesar.getArgumentConfigurations( configuration );
-
-        /* -------------------------------------------------------------
-         * 3. Step: Crosslinking related arguments.
-         * ------------------------------------------------------------- */
-        Caesar.crosslink( Caesar.ARG_CONFIG );
-
-        /* -------------------------------------------------------------
-         * 4. Step: Grouping together alternative or aliased arguments.
-         * ------------------------------------------------------------- */
-        Caesar.ARG_ALIASES = Caesar.groupAliases( Caesar.ARG_CONFIG );
-
-        /* -------------------------------------------------------------
-         * 5. Step: Aligning essentiality over whole alias groups.
-         * ------------------------------------------------------------- */
-        Caesar.alignEssentiality( Caesar.ARG_CONFIG, Caesar.ARG_ALIASES );
-
-        /* -------------------------------------------------------------
-         * 6. Step: Checking for dependency clashes.
-         * ------------------------------------------------------------- */
-        Caesar.checkDependencyClashes( Caesar.ARG_CONFIG, Caesar.ARG_ALIASES );
+        Caesar.crosslink();
+        Caesar.ARG_ALTERNATIVES = Caesar.group();
+        Caesar.alignEssentiality();
+        Caesar.checkDependencyClashes();
 
     }
 
-    /** This function filters out indexed field arguments from the given
-     *  collection and then validates them for index coherence before returning.
+    /** This function separates out field rules and
+     *  validates their claimed indices, so that index clashes
+     *  or missing indices are detected.
      */
-    private static List< Field > getFieldConfigurations( List< Argument > fragments )
+    private static List< Field > getFieldConfiguration( List< Argument > rules )
     throws FieldClashException, IncoherentFieldsException {
 
-        List< Field > fields = fragments.stream()
-                                        .filter( arg -> arg instanceof Field )
-                                        .map( arg -> ( Field ) arg )
-                                        .sorted( Comparator.comparingInt( Field::getIndex ) )
-                                        .collect( Collectors.toList() );
+        List< Field > fields = rules.stream()
+                                    .filter( arg -> arg instanceof Field )
+                                    .map( arg -> ( Field ) arg )
+                                    .sorted( Comparator.comparingInt( Field::getIndex ) )
+                                    .collect( Collectors.toList() );
 
         /* The algorithm iterates over the filtered out fields.
          * It inspects their claimed index and compares it to
          * the index of the field before.
          * If there is a duplicate index, there is definitely an index
-         * clash, which is why an exception is thrown.
+         * clash, which is why then an exception is thrown.
          * If, however, the indices have a greater delta than one, which
          * means that an index in between is not claimed by a field,
          * another exception is thrown.
@@ -110,30 +108,29 @@ public class Caesar {
 
         }
 
-        /* No field incoherence or index clash has been detected,
-         * so the collection can be returned.
-         */
         return fields;
 
     }
 
-    /** This function filters out annotated arguments from the given
-     *  collection and then searches for duplicates before returning.
+    /** This function separates out annotated argument rules and
+     *  checks for duplicate definitions.
      *
-     *  Returning a map of an annotated argument with its identifier
-     *  is redundant because the object holds the identifier itself
-     *  but this also allows for theoretical faster access speeds
-     *  when working with the parsed arguments.
+     *  Note: Technically, mapping the rule to its identifier is
+     *        redundant but allows for much faster search speeds.
      */
-    private static Map< String, AnnotatedArgument > getArgumentConfigurations( List< Argument > fragments )
+    private static Map< String, AnnotatedArgument > getArgumentConfiguration( List< Argument > rules )
     throws DuplicateArgumentDefinitionException {
 
         Map< String, AnnotatedArgument > result = new HashMap<>();
-        for ( Argument arg : fragments ) {
+        for ( Argument rule : rules ) {
 
-            if ( arg instanceof AnnotatedArgument ) {
+            if ( rule instanceof AnnotatedArgument ) {
 
-                AnnotatedArgument annotated = ( AnnotatedArgument ) arg;
+                /* If the rule's identifier can be found in the
+                 * already registered rules, there must be a
+                 * duplication and then an exception is thrown.
+                 */
+                AnnotatedArgument annotated = ( AnnotatedArgument ) rule;
                 String identifier = annotated.getIdentifier();
                 if ( !result.containsKey( identifier ) ) {
 
@@ -149,32 +146,23 @@ public class Caesar {
 
     }
 
-    /** This method crosslinks arguments by declaring them their respective
-     *  alternative or alias if at least one of them has declared the other
-     *  one as such - this is needed, so that arguments know of each other
-     *  as an alias.
+    /** This method crosslinks rules by transforming unilateral connections
+     *  between rules (a defined b as alternative) into bilateral connections
+     *  (beware: Only direct connections, no implicit connections).
      *
-     *  After the process an argument does only know about other arguments
-     *  that are directly linked to it but not about the ones that are implicitly
-     *  connected.
-     *  Example: a (not linked) and b (linked to a)
+     *  This process is needed because rules that define each other as
+     *  alternatives are grouped together - without that bilateral connection
+     *  making out the whole group is much harder.
      *
-     *  If b knows about a because they are alternatives to each other, than a
-     *  should also know about b as an alternative.
-     *  Basically, unilateral connections are made bilateral.
-     *  This ensures, that if you take any element from the hypothetical group,
-     *  that this element knows about at least one other element of that group.
-     *  This allows the group finding algorithm to wander around these direct
-     *  connections to make out the whole group.
      */
-    private static void crosslink( Map< String, AnnotatedArgument > arguments ) {
+    private static void crosslink() {
 
-        arguments.values().forEach( arg ->  arg.getAlternatives().forEach( other -> {
+        Caesar.ARG_CONFIG.values().forEach( annotated ->  annotated.getAlternatives().forEach( other -> {
 
             List< AnnotatedArgument > alternatives = other.getAlternatives();
-            if ( !alternatives.contains( arg ) ) {
+            if ( !alternatives.contains( annotated ) ) {
 
-                alternatives.add( arg );
+                alternatives.add( annotated );
 
             }
 
@@ -182,58 +170,60 @@ public class Caesar {
 
     }
 
-    /** This function groups together arguments that alias each other.
-     *  Found groups are put into @Caesar.ALIASES and are later used
-     *  to detect e.g. dependency clashes.
+    /** This function groups rules that defined each other
+     *  as alternative respectively.
+     *
+     *  @return Collection of access optimized alternative groups.
      */
-    private static Map< String, HashSet< AnnotatedArgument > > groupAliases( Map< String, AnnotatedArgument > source ) {
+    private static Map< String, HashSet< AnnotatedArgument > > group() {
 
-        Map< String, AnnotatedArgument >         arguments = ( HashMap< String, AnnotatedArgument > ) ( ( HashMap ) source ).clone();
+        Map< String, AnnotatedArgument >         annotated = ( HashMap< String, AnnotatedArgument > ) ( ( HashMap ) Caesar.ARG_CONFIG ).clone();
         Map< String, HashSet< AnnotatedArgument > > result = new HashMap<>();
 
-        /* The algorithm takes the first element of @arguments and
-         * groups it together with its aliases.
-         * If an alias is found, it is removed from @arguments, so that
-         * in the next major iteration, the first element is an alias
-         * in another group.
+        /* The algorithm takes the first element of @annotated and
+         * groups it together with its alternatives.
+         *
+         * If an alternative is found, it is removed from @annotated, so that
+         * in the next group building process, the first element is definitely
+         * not part of that particular group that the found alternative belonged to.
          */
-        while ( !arguments.isEmpty() ) {
+        while ( !annotated.isEmpty() ) {
 
-            AnnotatedArgument              first = ( AnnotatedArgument ) arguments.values().toArray()[ 0 ];
-            HashSet< AnnotatedArgument > aliases = new HashSet<>( Collections.singleton( first ) );
-            Queue< AnnotatedArgument >     query = new LinkedList<>( first.getAlternatives() );
+            AnnotatedArgument                   first = ( AnnotatedArgument ) annotated.values().toArray()[ 0 ];
+            HashSet< AnnotatedArgument > alternatives = new HashSet<>( Collections.singleton( first ) );
+            Queue< AnnotatedArgument >          query = new LinkedList<>( first.getAlternatives() );
 
-            /* When checking an annotated argument, its alternative arguments
-             * are put on the queue, so that they themselves are checked later on.
-             * This guarantees that at the end each element of the alias group
-             * has been processed.
+            /* When checking an annotated argument, its alternatives are put
+             * into the queue, so that they themselves are checked later on.
+             * This guarantees that at the end each element of the alternative
+             * group has been processed.
              */
-            arguments.remove( first.getIdentifier() );
+            annotated.remove( first.getIdentifier() );
             while ( !query.isEmpty() ) {
 
                 AnnotatedArgument front = query.poll();
                 String identifier       = front.getIdentifier();
-                if ( arguments.containsKey( identifier ) ) {
+                if ( annotated.containsKey( identifier ) ) {
 
-                    arguments.remove( identifier );
-                    aliases.add( front );
+                    annotated.remove( identifier );
+                    alternatives.add( front );
                     query.addAll( front.getAlternatives() );
 
                 }
 
             }
 
-            /* At this point, all elements of the alias group have been
-             * found and it is ready to be outputted.
+            /* At this point, all elements of the alternative group have been
+             * found and it is ready to be returned.
              * For faster search, each element of the group itself is linked
              * with the whole group (minus itself) in the resulting hashmap.
              */
-            aliases.forEach( alias -> {
+            alternatives.forEach( element -> {
 
-                HashSet< AnnotatedArgument > alternatives = ( HashSet< AnnotatedArgument > ) aliases.clone();
-                alternatives.remove( alias );
+                HashSet< AnnotatedArgument > group = ( HashSet< AnnotatedArgument > ) alternatives.clone();
+                alternatives.remove( element );
 
-                result.put( alias.getIdentifier(), alternatives );
+                result.put( element.getIdentifier(), group );
 
             } );
 
@@ -243,19 +233,19 @@ public class Caesar {
 
     }
 
-    /** This method aligns essentiality values for each argument
-     *  in an alias group.
+    /** This method aligns the essentiality settings for
+     *  alternative groups.
      *
-     *  This is an important step because an alternative to an essential argument
-     *  cannot be non-essential. Alternative arguments exclude each other and if
-     *  the non-essential argument would be used instead of the essential one,
-     *  the engine would detect that an essential argument is missing.
-     *  But at the same time, the essential argument cannot be used
-     *  because it is excluded due to the non-essential argument being in use.
+     *  An alternative to an essential argument cannot be non-essential.
+     *  Alternatives exclude each other and if the non-essential variant
+     *  would be used, there would be no way to incorporate the essential
+     *  argument without having an exception being thrown.
+     *  The engine would either detect that two alternatives are in use
+     *  at the same time or that an essential argument is missing.
      */
-    private static void alignEssentiality( Map< String, AnnotatedArgument > source, Map< String, HashSet< AnnotatedArgument > > aliases ) {
+    private static void alignEssentiality() {
 
-        Map< String, AnnotatedArgument > arguments = ( HashMap< String, AnnotatedArgument > ) ( ( HashMap ) source ).clone();
+        Map< String, AnnotatedArgument > arguments = ( HashMap< String, AnnotatedArgument > ) ( ( HashMap ) Caesar.ARG_CONFIG ).clone();
         while ( arguments.size() > 0 ) {
 
             /* In each iteration the first element can be accessed and is surely an element of a group
@@ -267,7 +257,7 @@ public class Caesar {
              * the element itself can be added to it for further calculations without affecting the source collection.
              */
             AnnotatedArgument            first = ( AnnotatedArgument ) arguments.values().toArray()[ 0 ];
-            HashSet< AnnotatedArgument > group = ( HashSet< AnnotatedArgument > ) aliases.get( first.getIdentifier() ).clone();
+            HashSet< AnnotatedArgument > group = ( HashSet< AnnotatedArgument > ) Caesar.ARG_ALTERNATIVES.get( first.getIdentifier() ).clone();
             group.add( first );
 
             /* Essential is true if any of the elements of the alias group
@@ -296,35 +286,31 @@ public class Caesar {
 
     }
 
-    /** This method determines whether a dependency clash is present.
-     *  A dependency clash is present if an argument has two dependencies
-     *  that are aliases and hence exclude each other.
-     *  In that case, the dependencies could not coexist and hence
-     *  dependency requirements are never met.
+    /** This method checks for dependency clashes
+     *  that occur when an argument has two dependencies
+     *  that are respective alternatives and hence exclude
+     *  each other - in that case the dependencies cannot
+     *  coexist and requirements are never met.
      */
-    private static void checkDependencyClashes( Map< String, AnnotatedArgument > config, Map< String, HashSet< AnnotatedArgument > > aliases )
+    private static void checkDependencyClashes()
     throws DependencyClashExeption {
 
-        for ( Map.Entry< String, AnnotatedArgument > element : config.entrySet() ) {
+        for ( Map.Entry< String, AnnotatedArgument > rule : Caesar.ARG_CONFIG.entrySet() ) {
 
-            String identifier = element.getKey();
-            AnnotatedArgument argument = element.getValue();
+            String          identifier = rule.getKey();
+            AnnotatedArgument argument = rule.getValue();
 
-            /* The actual references to the argument dependencies are not needed.
-             * For faster search (only the identifiers are needed), the dependency
-             * collection is transformed into an identifier HashSet.
-             */
             HashSet< AnnotatedArgument > dependencies = new HashSet<>( argument.getDependencies() );
             for ( AnnotatedArgument dependency : dependencies ) {
 
-                /* For each dependency of @argument, its alternatives are retrieved.
-                 * If any of its alternatives can also be found in @argument's dependency
+                /* For each dependency of @rule, its alternatives are retrieved.
+                 * If any of its alternatives can also be found in @rule's dependency
                  * collection, then @clashing is defined (as another dependency that is also
                  * an alternative to the currently inspected dependency) and an exception is thrown
                  * because this means that two alternative arguments (which exclude each other)
                  * are set as a dependency for @argument.
                  */
-                HashSet< AnnotatedArgument > alternatives = aliases.get( dependency.getIdentifier() );
+                HashSet< AnnotatedArgument > alternatives = Caesar.ARG_ALTERNATIVES.get( dependency.getIdentifier() );
                 Optional< AnnotatedArgument> clashing = alternatives.stream().filter( dependencies::contains ).findAny();
                 if ( clashing.isPresent() ) {
 
@@ -340,52 +326,48 @@ public class Caesar {
 
     }
 
-    /** This method parses arguments using predefined and
-     *  validated rules.
+    ////////////////////////////////////////////////////////
+    //  __________                     .__                //
+    //  \______   \_____ _______  _____|__| ____    ____  //
+    //  |     ___/\__  \\_  __ \/  ___/  |/    \  / ___\  //
+    //  |    |     / __ \|  | \/\___ \|  |   |  \/ /_/  > //
+    //  |____|    (____  /__|  /____  >__|___|  /\___  /  //
+    //                \/           \/        \//_____/    //
+    //                                                    //
+    ////////////////////////////////////////////////////////
+    /** This method parses program arguments using predefined
+     *  and sanitized rules.
      *
-     *  Values are stored in their respective collection
-     *  and then it checks if all essential arguments are
-     *  present and if dependency declarations are fulfilled.
+     *  Values are stored into their respective collection
+     *  along with their preceding flag (if there is any).
+     *
+     *  Finally, essentiality and dependency checks are done.
      */
-    public static void process( List< String > fragments )
+    public static void parse( List< String > arguments )
     throws SchemeMismatchException, EssentialArgumentMissingException, TooFewGroupValuesException, InvalidFlagException,
            ExcludedArgumentException, UnfulfilledArgumentDependencyException {
 
-        /* ------------------------------------------------------------------
-         * 1. Step: Getting field vacomparing them against schemes.
-         * --------------------------------------------------------- */
-        Caesar.FIELDS = Caesar.getFields( Caesar.FIELD_CONFIG, fragments );
-
-        /* ------------------------------------------------------------------
-         * 2. Step: Getting argument values and comparing them against schemes.
-         * ------------------------------------------------------------------ */
-        Caesar.ARGS = Caesar.getArguments( Caesar.ARG_CONFIG,
-                                           Caesar.ARG_ALIASES,
-                                           fragments.subList( Caesar.FIELDS.size(), fragments.size() ) );
-
-        /* ----------------- -------------------------------------------------
-         * 3. Step: Checking if all essential arguments are present.
-         * ------------------------------------------------------------------ */
-        Caesar.checkEssentialsPresent( Caesar.ARG_CONFIG, Caesar.ARGS );
-
-        /* ------------------------------------------------------------------
-         * 4. Step: Checking if all dependencies are fulfilled.
-         * ------------------------------------------------------------------ */
-        Caesar.checkDependencyFulfillment( Caesar.ARG_CONFIG, Caesar.ARGS );
+        Caesar.FIELDS = Caesar.getFieldValues( arguments );
+        Caesar.ARGS   = Caesar.getArgumentValues( arguments.subList( Caesar.FIELDS.size(), arguments.size() ) );
+        Caesar.checkEssentialsPresent();
+        Caesar.checkDependencyFulfillment();
 
     }
 
-    /** This function scans through the set of program arguments, searches for fields
-     *  and validates their values with help of their respective schemes.
-     *  If all values have the right format, the collection of values is returned.
+    /** This function searches through program arguments for fields
+     *  and validates its value with the field's scheme.
+     *  If there are to few field values or the values have the wrong
+     *  format, an exception is throws.
+     *
+     *  @return Collection of field values.
      */
-    private static List< String > getFields( List< Field > config, List< String > fragments )
+    private static List< String > getFieldValues( List< String > fragments )
     throws SchemeMismatchException, EssentialArgumentMissingException {
 
         List< String > result = new ArrayList<>();
-        for ( int i = 0; i < config.size(); i++ ) {
+        for ( int i = 0; i < Caesar.FIELD_CONFIG.size(); i++ ) {
 
-            /* If fragments doesn't hold the value at this index,
+            /* If @fragments doesn't hold the value at this index,
              * the whole collection (and amount of fields) must be
              * smaller than the specified amount of fields.
              * Then, an exception is thrown, because there are too
@@ -393,12 +375,12 @@ public class Caesar {
              */
             if ( i < fragments.size() ) {
 
-                String candidate = fragments.get( i );
-                if ( config.get( i ).getScheme().applies( candidate ) ) {
+                String value = fragments.get( i );
+                if ( FIELD_CONFIG.get( i ).getScheme().applies( value ) ) {
 
-                    result.add( candidate );
+                    result.add( value );
 
-                } else throw new SchemeMismatchException( candidate );
+                } else throw new SchemeMismatchException( value );
 
             } else throw new EssentialArgumentMissingException( i );
 
@@ -408,15 +390,18 @@ public class Caesar {
 
     }
 
-    /** This function scans through the set of program arguments, searches for arguments
-     *  and their values and validates them with help of the respective schemes.
-     *  If all values have the right format, the collection of annotated arguments is returned.
+    /** This function searches through program arguments for flags
+     *  and groups and validates their values using the groups schemes.
+     *  If there are too few or too many values or if the values
+     *  have the wrong format, an exception is thrown.
+     *
+     *  @return Collection of argument flags and their values.
      */
-    private static Map< String, List< String > > getArguments( Map< String, AnnotatedArgument > config, Map< String, HashSet< AnnotatedArgument > > aliases, List< String > fragments )
+    private static Map< String, List< String > > getArgumentValues( List< String > fragments )
     throws ExcludedArgumentException, InvalidFlagException, SchemeMismatchException, TooFewGroupValuesException {
 
         Map< String, List< String > > result = new HashMap<>();
-        if ( config.size() > 0 ) {
+        if ( Caesar.ARG_CONFIG.size() > 0 ) {
 
             /* The field @parent is defined if previously its flag has been
              * detected. The group itself is considered the 'parent' of the
@@ -427,13 +412,33 @@ public class Caesar {
             int expected = 0;
             AnnotatedArgument candidate;
 
-            /* Each iteration yields another fragment (basically part of the program
+            /* Each iteration yields another fragment (part of the program
              * arguments) which could indicate another argument coming or is one
              * value of the currently inspected argument.
              */
-            for ( String fragment : fragments ) {
+            while ( !fragments.isEmpty() ) {
 
-                candidate = config.get( fragment );
+                /* If @fragment contains @Caesar.GROUP_EQUALS, it is
+                 * in the @Format.EQUALS format.
+                 * By splitting at the "equals separator", the identifier
+                 * and values can be regained - @fragment is reassigned
+                 * to the identifier and the values are put back into
+                 * @fragments for further processing.
+                 *
+                 * This allows for seamless transformation to @FORMAT.WHITESPACE
+                 * without touching the rest of the parsing algorithm.
+                 */
+                String fragment = fragments.remove( 0 );
+                if ( fragment.contains( Caesar.GROUP_EQUALS ) ) {
+
+                    String[] parts = StringUtils.split( fragment, Caesar.GROUP_EQUALS );
+                    fragment = parts[ 0 ];
+                    fragments.addAll( 0, Arrays.asList( parts[ 1 ].split( Caesar.GROUP_SEPARATOR ) ) );
+
+                }
+
+                candidate = Caesar.ARG_CONFIG.get( fragment );
+
                 if ( parent == null ) {
 
                     /* If @parent is defined, the algorithm expects another argument,
@@ -448,10 +453,10 @@ public class Caesar {
                          * When @excluder is defined, then there are two arguments present
                          * that exclude each other and an exception is thrown.
                          */
-                        Optional< AnnotatedArgument > excluder = aliases.get( fragment )
-                                                                        .stream()
-                                                                        .filter( alt -> result.containsKey( alt.getIdentifier() ) )
-                                                                        .findAny();
+                        Optional< AnnotatedArgument > excluder = Caesar.ARG_ALTERNATIVES.getOrDefault( fragment, new HashSet<>() )
+                                                                                        .stream()
+                                                                                        .filter( alt -> result.containsKey( alt.getIdentifier() ) )
+                                                                                        .findAny();
                         if ( excluder.isEmpty() ) {
 
                             if ( candidate instanceof Group ) {
@@ -530,39 +535,32 @@ public class Caesar {
 
     }
 
-    /** This method checks whether all essential arguments are provided.
+    /** This method checks whether all essential arguments or
+     *  any of its alternatives are present.
      */
-    private static void checkEssentialsPresent( Map< String, AnnotatedArgument > config, Map< String, List< String > > arguments )
+    private static void checkEssentialsPresent()
     throws EssentialArgumentMissingException {
 
-        for ( Map.Entry< String, AnnotatedArgument > entry : config.entrySet() ) {
+        for ( AnnotatedArgument rule : Caesar.ARG_CONFIG.values() ) {
 
-            String identifier = entry.getKey();
-            if ( entry.getValue().isEssential() && !arguments.containsKey( identifier ) ) {
+            /* Each essential rule must be represented in the program arguments,
+             * either by its own identifier or by its alternatives.
+             */
+            String identifier = rule.getIdentifier();
+            if ( rule.isEssential() && !Caesar.ARGS.containsKey( identifier ) ) {
 
-                throw new EssentialArgumentMissingException( identifier );
+                /* It is sufficient if any of the rule's alternatives can be found in
+                 * the parsed arguments collection, because it is not allowed to have
+                 * multiple alternatives present in the program arguments at the same
+                 * time.
+                 * If neither the argument itself nor any of its alternatives is found,
+                 * an exception is thrown.
+                 */
+                boolean represented = Caesar.ARG_ALTERNATIVES.entrySet().stream()
+                                                                        .anyMatch( alias -> Caesar.ARGS.containsKey( alias.getKey() ) );
+                if ( !represented ) {
 
-            }
-
-        }
-
-    }
-
-    /** This method checks whether all dependency requirements are met.
-     */
-    private static void checkDependencyFulfillment( Map< String, AnnotatedArgument > config, Map< String, List< String > > arguments )
-    throws UnfulfilledArgumentDependencyException {
-
-        System.out.println( arguments.keySet() );
-        for ( String argument : arguments.keySet() ) {
-
-            List< AnnotatedArgument > dependencies = config.get( argument ).getDependencies();
-            for ( AnnotatedArgument dependency : dependencies ) {
-
-                String suspected = dependency.getIdentifier();
-                if ( !arguments.containsKey( suspected ) ) {
-
-                    throw new UnfulfilledArgumentDependencyException( argument, suspected );
+                    throw new EssentialArgumentMissingException( identifier );
 
                 }
 
@@ -572,13 +570,53 @@ public class Caesar {
 
     }
 
-    public static Optional< String > getValue( int index ) {
+    /** This method checks whether all dependency requirements
+     *  for each argument have been met.
+     */
+    private static void checkDependencyFulfillment()
+    throws UnfulfilledArgumentDependencyException {
+
+        for ( String argument : Caesar.ARGS.keySet() ) {
+
+            /* For each argument, its dependencies are retrieved.
+             * If any of the dependencies cannot be found in
+             * @Caesar.ARGS, meaning the argument has never been
+             * provided, an exception is thrown.
+             */
+            List< String > dependencies = Caesar.ARG_CONFIG.get( argument ).getDependencies().stream()
+                                                                                             .map( AnnotatedArgument::getIdentifier )
+                                                                                             .collect( Collectors.toList() );
+            for ( String dependency : dependencies ) {
+
+                if ( !Caesar.ARGS.containsKey( dependency ) ) {
+
+                    throw new UnfulfilledArgumentDependencyException( argument, dependency );
+
+                }
+
+            }
+
+        }
+
+    }
+
+    //////////////////////////////////////////////////
+    //                                              //
+    //    _____                                     //
+    //   /  _  \   ____  ____  ____   ______ ______ //
+    //  /  /_\  \_/ ___\/ ___\/ __ \ /  ___//  ___/ //
+    // /    |    \  \__\  \__\  ___/ \___ \ \___ \  //
+    // \____|__  /\___  >___  >___  >____  >____  > //
+    //         \/     \/    \/    \/     \/     \/  //
+    //                                              //
+    //////////////////////////////////////////////////
+    public static Optional< String > getFieldValue( int index ) {
 
         return Optional.ofNullable( Caesar.FIELDS.get( index ) );
 
     }
 
-    public static Optional< List< String > > getValues( String argument ) {
+    public static Optional< List< String > > getArgumentValues( String argument ) {
 
         return Optional.ofNullable( Caesar.ARGS.get( argument ) );
 
@@ -590,33 +628,19 @@ public class Caesar {
 
     }
 
-    //TODO
-    //1. Removing " from string values
-    //2. var args
-    //3. =
-    //4. Verzweigungslogik
-    //5. alias checking with dependencies
-    //6. aliases are not forced to have same config (dependencies)
-    //7. if dependecny b is essential, then a must also be essentiall
     public static void main( String ... arguments ) {
 
         List< String > args = new ArrayList<>();
-        args.add( "-d" );
-        args.add( "-a" );
-        args.add( "-g" );
+        args.add( "-h=20;30;40" );
 
         List< Argument > config = new ArrayList<>();
-        Group d = new Group( false, "-d", new ArrayList<>(), null,null );
-        Group a = new Group( false, "-a", new ArrayList<>(), null, Collections.singletonList( d ) );
-        Group g = new Group( false, "-g", new ArrayList<>(), null,Arrays.asList( a, d ) );
-        config.add( d );
-        config.add( a );
-        config.add( g );
+        Group h = new Group( true, "-h", Format.EQUATE, Arrays.asList( Scheme.INTEGER, Scheme.INTEGER, Scheme.INTEGER ), null,null );
+        config.add( h );
 
         try {
 
             Caesar.configure( config );
-            Caesar.process( args );
+            Caesar.parse( args );
 
         } catch ( Exception exception ) {
 
@@ -624,8 +648,8 @@ public class Caesar {
 
         }
 
-        Caesar.getValues( "-b" ).orElse( new ArrayList<>() ).forEach( System.out::println );
-//        System.out.println( Caesar.getValues( "-d" ).orElse( new ArrayList<>() ).size() );
+        System.out.println( "b" );
+        Caesar.getArgumentValues( "-h" ).get().forEach( System.out::println );
 
     }
 
