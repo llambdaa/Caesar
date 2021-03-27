@@ -16,19 +16,20 @@ public abstract class AnnotatedArgument extends Argument {
 
         super( essential );
 
-        try {
+        if ( identifier.matches( Caesar.GROUP_EQUALS_REGEX ) ) {
 
-            if ( !identifier.contains( "=" ) ) {
+            InvalidArgumentException.print( identifier, "Identifier is not allowed to contain equals sign." );
 
-                this.identifier = identifier;
+        } else if ( identifier.matches( Caesar.GROUP_COLON_REGEX ) ) {
 
-            } else throw new InvalidArgumentException( identifier, "Identifier is not allowed to contain equals sign." );
+            InvalidArgumentException.print( identifier, "Identifier is not allowed to contain colon." );
 
-        } catch ( InvalidArgumentException exception ) {
+        } else {
 
-            exception.printStackTrace();
+            this.identifier = identifier;
 
         }
+
         this.alternatives = alternatives == null ? new ArrayList<>() : new ArrayList<>( alternatives );
         this.dependencies = dependencies == null ? new ArrayList<>() : new ArrayList<>( dependencies );
 

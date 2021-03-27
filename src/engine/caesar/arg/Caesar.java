@@ -1,6 +1,5 @@
-package engine.caesar.core;
+package engine.caesar.arg;
 
-import engine.caesar.arg.*;
 import engine.caesar.exception.*;
 import engine.caesar.utils.StringUtils;
 
@@ -39,8 +38,11 @@ public class Caesar {
     private static List< String > FIELDS;
     private static Map< String, List< String > > ARGS;
 
-    private static final String GROUP_EQUALS    = "=";
-    private static final String GROUP_SEPARATOR = "(?<!\\\\);";
+    private static final String GROUP_EQUALS_SEPARATOR  = "=";
+    protected static final String GROUP_EQUALS_REGEX    = "-\\w+=.*";
+    private static final String GROUP_COLOR_SEPARATOR   = ":";
+    protected static final String GROUP_COLON_REGEX     = "-\\w+:.*";
+    private static final String GROUP_VALUE_SEPARATOR   = "(?<!\\\\);";
 
     /////////////////////////////////////////////////////////////////////
     //   _________                _____.__                             //
@@ -428,11 +430,17 @@ public class Caesar {
                  * without touching the rest of the parsing algorithm.
                  */
                 String fragment = fragments.remove( 0 );
-                if ( fragment.contains( Caesar.GROUP_EQUALS ) ) {
+                if ( fragment.matches( Caesar.GROUP_EQUALS_REGEX ) ) {
 
-                    String[] parts = StringUtils.split( fragment, Caesar.GROUP_EQUALS );
+                    String[] parts = StringUtils.split( fragment, Caesar.GROUP_EQUALS_SEPARATOR );
                     fragment = parts[ 0 ];
-                    fragments.addAll( 0, Arrays.asList( parts[ 1 ].split( Caesar.GROUP_SEPARATOR ) ) );
+                    fragments.addAll( 0, Arrays.asList( parts[ 1 ].split( Caesar.GROUP_VALUE_SEPARATOR ) ) );
+
+                } else if ( fragment.matches( Caesar.GROUP_COLON_REGEX ) ) {
+
+                    String[] parts = StringUtils.split( fragment, Caesar.GROUP_COLOR_SEPARATOR );
+                    fragment = parts[ 0 ];
+                    fragments.addAll( 0, Arrays.asList( parts[ 1 ].split( Caesar.GROUP_VALUE_SEPARATOR ) ) );
 
                 }
 
@@ -615,20 +623,59 @@ public class Caesar {
      *
      *  @return Optional of value (in case it is non-existent).
      */
-    public static Optional< String > getFieldValue( int index ) {
+    public static Optional< String > getValue( int index ) {
 
-        return Optional.ofNullable( Caesar.FIELDS.get( index ) );
+        if ( index > 0 && index < Caesar.FIELDS.size() ) {
+
+            return Optional.ofNullable( Caesar.FIELDS.get( index ) );
+
+        } else {
+
+            InvalidArgumentException.print( Integer.toString( index ), "Index out of bounds." );
+            return Optional.empty();
+
+        }
+
+    }
+
+    /** This function retrieves the first argument value
+     *  of the argument with the given identifier.
+     *
+     *  @return Optional of first argument value (in case there is none).
+     */
+    public static Optional< String > getValue( String identifier ) {
+
+        if ( Caesar.ARGS.containsKey( identifier ) ) {
+
+            List< String > values = Caesar.ARGS.get( identifier );
+            return Optional.ofNullable( values.size() > 0 ? values.get( 0 ) : null );
+
+        } else {
+
+            InvalidArgumentException.print( identifier, "Argument with this identifier could not be found." );
+            return Optional.empty();
+
+        }
 
     }
 
     /** This function retrieves the argument values
      *  of the argument with the given identifier.
      *
-     *  @return Optional of values (in case there are none).
+     *  @return Optional of argument values (in case there are none).
      */
-    public static Optional< List< String > > getArgumentValues( String identifier ) {
+    public static Optional< List< String > > getValues( String identifier ) {
 
-        return Optional.ofNullable( Caesar.ARGS.get( identifier ) );
+        if ( Caesar.ARGS.containsKey( identifier ) ) {
+
+            return Optional.ofNullable( Caesar.ARGS.get( identifier ) );
+
+        } else {
+
+            InvalidArgumentException.print( identifier, "Argument with this identifier could not be found." );
+            return Optional.empty();
+
+        }
 
     }
 
@@ -683,7 +730,7 @@ public class Caesar {
 
             } );
 
-        } else new InvalidArgumentException( dependencyIdentifier, "Argument with this identifier could not be found." ).printStackTrace();
+        } else InvalidArgumentException.print( dependencyIdentifier, "Argument with this identifier could not be found." );
 
         return result;
 
@@ -714,19 +761,15 @@ public class Caesar {
 
     }
 
+    //TODO split with :
     public static void main( String ... arguments ) {
 
         List< String > args = new ArrayList<>();
-        args.add( "-a" );
-        args.add( "20" );
-        args.add( "-b" );
-        args.add( "30" );
+        args.add( "-a:20" );
 
         List< Argument > config = new ArrayList<>();
-        Group a = new Group( true, "-a", Format.WHITESPACE, Scheme.INTEGER, null, null );
-        Group b = new Group( false, "-b", Format.WHITESPACE, Scheme.INTEGER, null, Arrays.asList( a ) );
+        Group a = new Group( true, "-a", Format.ASSIGNMENT, Scheme.INTEGER, null, null );
         config.add( a );
-        config.add( b );
 
         try {
 
@@ -738,6 +781,8 @@ public class Caesar {
             exception.printStackTrace();
 
         }
+
+        Caesar.getValues( "-a" ).get().forEach( System.out::println );
 
     }
 
