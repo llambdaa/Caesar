@@ -1,6 +1,11 @@
 package engine.caesar.arg;
 
-import engine.caesar.exception.*;
+import engine.caesar.exception.config.DependencyClashExeption;
+import engine.caesar.exception.config.DuplicateArgumentDefinitionException;
+import engine.caesar.exception.config.FieldClashException;
+import engine.caesar.exception.config.IncoherentFieldsException;
+import engine.caesar.exception.engine.InvalidArgumentException;
+import engine.caesar.exception.parse.*;
 import engine.caesar.utils.StringUtils;
 
 import java.util.*;
@@ -40,7 +45,7 @@ public class Caesar {
 
     private static final String GROUP_EQUALS_SEPARATOR  = "=";
     protected static final String GROUP_EQUALS_REGEX    = "-\\w+=.*";
-    private static final String GROUP_COLOR_SEPARATOR   = ":";
+    private static final String GROUP_COLON_SEPARATOR   = ":";
     protected static final String GROUP_COLON_REGEX     = "-\\w+:.*";
     private static final String GROUP_VALUE_SEPARATOR   = "(?<!\\\\);";
 
@@ -345,8 +350,8 @@ public class Caesar {
      *  Finally, essentiality and dependency checks are done.
      */
     public static void parse( List< String > arguments )
-    throws SchemeMismatchException, EssentialArgumentMissingException, TooFewGroupValuesException, InvalidFlagException,
-           ExcludedArgumentException, UnfulfilledArgumentDependencyException {
+    throws SchemeMismatchException, EssentialArgumentMissingException, InvalidFlagException, ExcludedArgumentException,
+           UnfulfilledArgumentDependencyException, GroupTooFewValuesException, GroupTooManyValuesException, GroupMissingSchemeException {
 
         Caesar.FIELDS = Caesar.getFieldValues( arguments );
         Caesar.ARGS   = Caesar.getArgumentValues( arguments.subList( Caesar.FIELDS.size(), arguments.size() ) );
@@ -399,7 +404,8 @@ public class Caesar {
      *  @return Collection of argument flags and their values.
      */
     private static Map< String, List< String > > getArgumentValues( List< String > fragments )
-    throws ExcludedArgumentException, InvalidFlagException, SchemeMismatchException, TooFewGroupValuesException {
+    throws ExcludedArgumentException, InvalidFlagException, SchemeMismatchException,
+           GroupTooFewValuesException, GroupMissingSchemeException, GroupTooManyValuesException {
 
         Map< String, List< String > > result = new HashMap<>();
         if ( Caesar.ARG_CONFIG.size() > 0 ) {
@@ -419,26 +425,31 @@ public class Caesar {
              */
             while ( !fragments.isEmpty() ) {
 
-                /* If @fragment contains @Caesar.GROUP_EQUALS, it is
-                 * in the @Format.EQUALS format.
-                 * By splitting at the "equals separator", the identifier
-                 * and values can be regained - @fragment is reassigned
-                 * to the identifier and the values are put back into
-                 * @fragments for further processing.
+                /* If @fragment contains a separator apart from whitespaces,
+                 * it is formally in the @Format.ASSIGNMENT format.
+                 * By splitting at the respective separator, the identifier
+                 * and values can be regained.
+                 * Then @fragment is reassigned to the identifier and the
+                 * values are put back into @fragments for further processing
+                 * after sanitizing them (removing quoting).
                  *
                  * This allows for seamless transformation to @FORMAT.WHITESPACE
                  * without touching the rest of the parsing algorithm.
                  */
                 String fragment = fragments.remove( 0 );
+                String[] parts = null;
                 if ( fragment.matches( Caesar.GROUP_EQUALS_REGEX ) ) {
 
-                    String[] parts = StringUtils.split( fragment, Caesar.GROUP_EQUALS_SEPARATOR );
-                    fragment = parts[ 0 ];
-                    fragments.addAll( 0, Arrays.asList( parts[ 1 ].split( Caesar.GROUP_VALUE_SEPARATOR ) ) );
+                    parts = StringUtils.split( fragment, Caesar.GROUP_EQUALS_SEPARATOR );
 
                 } else if ( fragment.matches( Caesar.GROUP_COLON_REGEX ) ) {
 
-                    String[] parts = StringUtils.split( fragment, Caesar.GROUP_COLOR_SEPARATOR );
+                    parts = StringUtils.split( fragment, Caesar.GROUP_COLON_SEPARATOR );
+
+                }
+
+                if ( parts != null ) {
+
                     fragment = parts[ 0 ];
                     fragments.addAll( 0, Arrays.asList( parts[ 1 ].split( Caesar.GROUP_VALUE_SEPARATOR ) ) );
 
@@ -471,21 +482,11 @@ public class Caesar {
                                 parent = ( Group ) candidate;
                                 expected = parent.getSchemes().size();
 
-                                /* If @parent is group but the group itself has no
-                                 * expected children, the group might also be considered
-                                 * a flag (because technically it is) and hence
-                                 * @parent is set back to null for further parsing.
-                                 */
                                 if ( expected > 0 ) {
 
                                     values = new ArrayList<>();
 
-                                } else {
-
-                                    parent = null;
-                                    result.put( fragment, null );
-
-                                }
+                                } else throw new GroupMissingSchemeException( parent.getIdentifier() );
 
                             } else result.put( fragment, null );
 
@@ -520,19 +521,19 @@ public class Caesar {
 
                         } else throw new SchemeMismatchException( fragment );
 
-                    } else throw new TooFewGroupValuesException( parent.getIdentifier(), values.size(), expected );
+                    } else throw new GroupTooManyValuesException( parent.getIdentifier(), values.size(), expected );
 
                 }
 
             }
 
-            /* If after iterating over the program arguments, @parent is still defined,
+            /* If after ite rating over the program arguments, @parent is still defined,
              * it means, that parsing wasn't done because there were still some argument
              * values missing.
              */
             if ( parent != null ) {
 
-                throw new TooFewGroupValuesException( parent.getIdentifier(), values.size(), expected );
+                throw new GroupTooFewValuesException( parent.getIdentifier(), values.size(), expected );
 
             }
 

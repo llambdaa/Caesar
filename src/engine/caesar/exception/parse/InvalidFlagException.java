@@ -1,4 +1,4 @@
-package engine.caesar.exception;
+package engine.caesar.exception.parse;
 
 public class InvalidFlagException extends Exception {
 

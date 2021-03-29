@@ -1,6 +1,6 @@
 package engine.caesar.arg;
 
-import engine.caesar.exception.InvalidArgumentException;
+import engine.caesar.exception.engine.InvalidArgumentException;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -8,21 +8,30 @@ import java.util.List;
 
 public abstract class AnnotatedArgument extends Argument {
 
+    private static final String ERROR_IDENTIFIER_UNDEFINED       = "Identifier is undefined.";
+    private static final String ERROR_IDENTIFIER_HAS_EQUALS_SIGN = "Identifier is not allowed to contain equals sign.";
+    private static final String ERROR_IDENTIFIER_HAS_COLON       = "Identifier is not allowed to contain colon.";
+
     private String identifier;
     private List< AnnotatedArgument > alternatives;
     private List< AnnotatedArgument > dependencies;
 
-    public AnnotatedArgument( boolean essential, String identifier, Collection< AnnotatedArgument > alternatives, Collection< AnnotatedArgument > dependencies ) {
+    public AnnotatedArgument( boolean essential, String identifier, Collection< AnnotatedArgument > alternatives, Collection< AnnotatedArgument > dependencies )
+    throws InvalidArgumentException {
 
         super( essential );
 
-        if ( identifier.matches( Caesar.GROUP_EQUALS_REGEX ) ) {
+        if ( identifier == null || identifier.isEmpty() || identifier.isBlank() ) {
 
-            InvalidArgumentException.print( identifier, "Identifier is not allowed to contain equals sign." );
+            throw new InvalidArgumentException( identifier, ERROR_IDENTIFIER_UNDEFINED );
+
+        } else if ( identifier.matches( Caesar.GROUP_EQUALS_REGEX ) ) {
+
+            throw new InvalidArgumentException( identifier, ERROR_IDENTIFIER_HAS_EQUALS_SIGN );
 
         } else if ( identifier.matches( Caesar.GROUP_COLON_REGEX ) ) {
 
-            InvalidArgumentException.print( identifier, "Identifier is not allowed to contain colon." );
+            throw new InvalidArgumentException( identifier, ERROR_IDENTIFIER_HAS_COLON );
 
         } else {
 
@@ -52,5 +61,13 @@ public abstract class AnnotatedArgument extends Argument {
         return this.dependencies;
 
     }
+
+    /** This function allows making aliases of this object
+     *  with a new identifier.
+     *  This sometimes eleviates the need to write a lot of
+     *  boilerplate code in order o create similar arguments.
+     */
+    public abstract AnnotatedArgument alias( String identifier )
+    throws InvalidArgumentException;
 
 }

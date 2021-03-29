@@ -1,4 +1,4 @@
-package engine.caesar.exception;
+package engine.caesar.exception.config;
 
 public class DuplicateArgumentDefinitionException extends Exception {
 

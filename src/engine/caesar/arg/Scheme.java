@@ -1,5 +1,7 @@
 package engine.caesar.arg;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.Function;
 
 public class Scheme {
@@ -7,6 +9,19 @@ public class Scheme {
     public static final Scheme PASS_ALL = Scheme.as( value -> true );
     public static final Scheme INTEGER  = Scheme.as( value -> value.matches( "[+-]?\\d+" ) );
     public static final Scheme URI      = Scheme.as( value -> value.matches( "[-a-zA-Z0-9+&@#/%?=~_|!:,.;]*[-a-zA-Z0-9+&@#/%=~_|]" ) );
+
+    public static List< Scheme > times( Scheme scheme, int times ) {
+
+        List< Scheme > result = new ArrayList<>();
+        for ( int i = 0; i < Math.max( 1, times ); i++ ) {
+
+            result.add( scheme );
+
+        }
+
+        return result;
+
+    }
 
     public static Scheme as( Function< String, Boolean > function ) {
 

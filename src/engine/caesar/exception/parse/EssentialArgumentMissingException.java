@@ -1,4 +1,4 @@
-package engine.caesar.exception;
+package engine.caesar.exception.parse;
 
 public class EssentialArgumentMissingException extends Exception {
 
